@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catan</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Catan</h1>
+    <div class="toolbar">
+      <label>Players
+        <select id="opt-players">
+          <option value="4" selected>4</option>
+          <option value="3">3</option>
+          <option value="2">2</option>
+        </select>
+      </label>
+      <label>Opponents <select id="opt-bot"></select></label>
+      <label>Seed <input id="opt-seed" type="number" placeholder="random"></label>
+      <label>Bot speed <input id="opt-speed" type="range" min="0" max="1000" step="50" value="350"></label>
+      <button id="btn-new" class="primary">New game</button>
+      <span class="sep"></span>
+      <label>Replay <select id="opt-replay"><option value="">—</option></select></label>
+    </div>
+  </header>
+
+  <main>
+    <section id="board-wrap">
+      <canvas id="board"></canvas>
+      <div id="banner" hidden></div>
+      <div id="prompt"></div>
+    </section>
+
+    <aside>
+      <div id="players" class="panel"></div>
+      <div class="panel">
+        <h2 id="hand-title">Your hand</h2>
+        <div id="hand" class="cards"></div>
+        <div id="devcards" class="cards dev"></div>
+      </div>
+      <div class="panel">
+        <div id="controls" class="controls"></div>
+        <div id="picker"></div>
+      </div>
+      <div class="panel grow">
+        <h2>Log</h2>
+        <ol id="log"></ol>
+      </div>
+    </aside>
+  </main>
+
+  <div id="replay-bar" hidden>
+    <button data-step="-1000">⏮</button>
+    <button data-step="-1">◀</button>
+    <button id="replay-play">▶ play</button>
+    <button data-step="1">▶</button>
+    <button data-step="1000">⏭</button>
+    <input id="replay-slider" type="range" min="0" value="0">
+    <span id="replay-pos"></span>
+  </div>
+
+  <script src="/static/board.js"></script>
+  <script src="/static/ui.js"></script>
+</body>
+</html>

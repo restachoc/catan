@@ -1,0 +1,406 @@
+use catan_core::actions::*;
+use catan_core::board::*;
+use catan_core::bots::{heuristic_action, random_action};
+use catan_core::rng::Rng;
+use catan_core::state::*;
+use catan_core::topology::*;
+use catan_core::{write_obs, OBS_SIZE};
+
+fn cfg(n: u8) -> Config {
+    Config { n_players: n, max_turns: 1000, ..Config::default() }
+}
+
+// ------------------------------------------------------------------ topology & board
+
+#[test]
+fn topology_shape() {
+    let t = &*TOPO;
+    for v in 0..N_VERT {
+        let deg = t.vertex_edges[v].count_ones();
+        assert!(deg == 2 || deg == 3, "vertex {v} degree {deg}");
+        assert_eq!(t.vertex_neighbors[v].count_ones(), deg);
+        let nh = t.vertex_hexes[v].count_ones();
+        assert!((1..=3).contains(&nh));
+    }
+    // 30 coastal vertices: 18 have degree 2, 12 have degree 3.
+    let deg2 = (0..N_VERT).filter(|&v| t.vertex_edges[v].count_ones() == 2).count();
+    assert_eq!(deg2, 18);
+    for h in 0..N_HEX {
+        assert_eq!(t.hex_vmask[h].count_ones(), 6);
+        let nb = t.hex_neighbors[h].count_ones();
+        assert!((3..=6).contains(&nb));
+    }
+    // Coast edges form a closed cycle: consecutive edges share a vertex.
+    for i in 0..N_COAST {
+        let a = t.edge_vertices[t.coast_edges[i] as usize];
+        let b = t.edge_vertices[t.coast_edges[(i + 1) % N_COAST] as usize];
+        assert!(a.iter().any(|x| b.contains(x)), "coast gap at {i}");
+    }
+}
+
+#[test]
+fn board_composition() {
+    let mut rng = Rng::new(7);
+    for b in [Board::beginner(), Board::random(&mut rng), Board::random(&mut rng)] {
+        let mut counts = [0; 6];
+        for &r in &b.hex_res {
+            counts[r as usize] += 1;
+        }
+        assert_eq!(counts, [4, 3, 4, 4, 3, 1]);
+        assert_eq!(b.hex_num[b.desert as usize], 0);
+        let mut nums = [0; 13];
+        for &n in &b.hex_num {
+            nums[n as usize] += 1;
+        }
+        assert_eq!(nums, [1, 0, 1, 2, 2, 2, 2, 0, 2, 2, 2, 2, 1]);
+        // 9 ports on 18 distinct vertices.
+        let all: u64 = b.port_mask.iter().fold(0, |m, &x| m | x);
+        assert_eq!(all.count_ones(), 18);
+    }
+    for _ in 0..50 {
+        let b = Board::random(&mut rng);
+        let red = |n: u8| n == 6 || n == 8;
+        for h in 0..N_HEX {
+            if red(b.hex_num[h]) {
+                assert!(bits32(TOPO.hex_neighbors[h]).all(|g| !red(b.hex_num[g])));
+            }
+        }
+    }
+}
+
+#[test]
+fn action_space_layout() {
+    assert_eq!(N_ACTIONS, 253);
+    for give in 0..5 {
+        for get in 0..5 {
+            if give != get {
+                assert_eq!(trade_pair(trade_id(give, get) - TRADE), (give, get));
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------ targeted rules
+
+/// Play the setup phase with the heuristic bot.
+fn after_setup(n: u8, seed: u64) -> State {
+    let mut s = State::new(cfg(n), seed);
+    let mut rng = Rng::new(seed);
+    while matches!(s.phase, Phase::SetupSettlement | Phase::SetupRoad) {
+        s.step(heuristic_action(&s, &mut rng));
+    }
+    s
+}
+
+#[test]
+fn setup_snake_order_and_starting_resources() {
+    let mut s = State::new(cfg(4), 1);
+    let mut rng = Rng::new(1);
+    let mut order = vec![];
+    while matches!(s.phase, Phase::SetupSettlement | Phase::SetupRoad) {
+        if s.phase == Phase::SetupSettlement {
+            order.push(s.cur);
+        }
+        s.step(heuristic_action(&s, &mut rng));
+    }
+    assert_eq!(order, vec![0, 1, 2, 3, 3, 2, 1, 0]);
+    assert_eq!(s.phase, Phase::Roll);
+    assert_eq!(s.cur, 0);
+    for p in 0..4 {
+        assert_eq!(s.settlements[p].count_ones(), 2);
+        assert_eq!(s.roads[p].count_ones(), 2);
+        // Resources equal the non-desert hexes around the second settlement (1..=3 cards).
+        let t = s.hand_total(p);
+        assert!((1..=3).contains(&t), "player {p} got {t}");
+    }
+}
+
+#[test]
+fn distance_rule_enforced() {
+    let s = after_setup(4, 3);
+    let occ = s.occupied();
+    for p in 0..4 {
+        for v in bits64(s.settle_candidates(p, false)) {
+            assert_eq!(occ >> v & 1, 0);
+            assert_eq!(TOPO.vertex_neighbors[v] & occ, 0);
+        }
+    }
+}
+
+#[test]
+fn seven_triggers_discard_then_robber() {
+    // Find a seed where the first roll is a 7 and give player 2 a big hand.
+    for seed in 0..500 {
+        let mut s = after_setup(4, seed);
+        s.hands[2] = [3, 3, 2, 1, 1];
+        for r in 0..5 {
+            s.bank[r] = 19 - (0..4).map(|p| s.hands[p][r]).sum::<u8>();
+        }
+        s.step(ROLL);
+        if s.last_roll[0] + s.last_roll[1] != 7 {
+            continue;
+        }
+        assert_eq!(s.phase, Phase::Discard);
+        assert_eq!(s.actor(), 2);
+        assert_eq!(s.discard_need[2], 5);
+        while s.phase == Phase::Discard {
+            assert_eq!(s.actor(), 2);
+            let r = (0..5).find(|&r| s.hands[2][r] > 0).unwrap();
+            s.step(DISCARD + r);
+        }
+        assert_eq!(s.hand_total(2), 5);
+        assert_eq!(s.phase, Phase::MoveRobber);
+        assert_eq!(s.actor(), 0);
+        return;
+    }
+    panic!("no seed rolled a 7");
+}
+
+#[test]
+fn robber_blocks_production() {
+    let mut s = after_setup(2, 11);
+    // Put the robber on every producing hex; no one may gain resources on that number then.
+    for seed in 0..200u64 {
+        let mut t = s;
+        t.rng = Rng::new(seed);
+        let before: Vec<u32> = (0..2).map(|p| t.hand_total(p)).collect();
+        t.step(ROLL);
+        let roll = t.last_roll[0] + t.last_roll[1];
+        if roll == 7 {
+            continue;
+        }
+        let hexes = t.board.num_hexes[roll as usize];
+        let mut t2 = s;
+        t2.rng = Rng::new(seed);
+        t2.robber = hexes.trailing_zeros() as u8;
+        t2.step(ROLL);
+        let gained_open: u32 = (0..2).map(|p| t.hand_total(p) - before[p]).sum();
+        let gained_blocked: u32 = (0..2).map(|p| t2.hand_total(p) - before[p]).sum();
+        assert!(gained_blocked <= gained_open);
+    }
+    s.step(ROLL);
+}
+
+#[test]
+fn longest_road_award_and_break() {
+    let mut s = State::new(cfg(2), 0);
+    // Hand-build: player 0 gets a 5-road chain along the coast.
+    s.phase = Phase::Main;
+    s.rolled = true;
+    let chain: Vec<usize> = (0..5).map(|i| TOPO.coast_edges[i] as usize).collect();
+    let start = TOPO.edge_vertices[chain[0]];
+    let first_v = start.iter().copied().find(|v| !TOPO.edge_vertices[chain[1]].contains(v)).unwrap();
+    s.settlements[0] = 1 << first_v;
+    for &e in &chain {
+        s.hands[0] = [1, 1, 0, 0, 0];
+        s.bank = [18, 18, 19, 19, 19];
+        s.step(ROAD + e);
+    }
+    assert_eq!(s.road_len[0], 5);
+    assert_eq!(s.longest_road, 0);
+    assert_eq!(s.vp(0), 3);
+    // Player 1 settles in the middle of the chain (legal-by-construction here) and breaks it.
+    let mid = TOPO.edge_vertices[chain[2]][0];
+    let mid = if TOPO.edge_vertices[chain[1]].contains(&mid) { mid } else { TOPO.edge_vertices[chain[2]][1] };
+    s.cur = 1;
+    s.roads[1] = TOPO.vertex_edges[mid as usize] & !s.roads[0];
+    s.hands[1] = [1, 1, 1, 1, 0];
+    s.step(SETTLE + mid as usize);
+    assert!(s.road_len[0] < 5);
+    assert_eq!(s.longest_road, -1);
+}
+
+#[test]
+fn largest_army() {
+    let mut s = after_setup(3, 5);
+    s.step(ROLL);
+    while s.phase != Phase::Main && s.phase != Phase::Roll {
+        let mut rng = Rng::new(0);
+        s.step(heuristic_action(&s, &mut rng));
+    }
+    for i in 0..3 {
+        s.dev_hand[0][DEV_KNIGHT] = 1;
+        s.dev_played = false;
+        s.phase = Phase::Main;
+        s.cur = 0;
+        s.rolled = true;
+        s.step(PLAY_KNIGHT);
+        let h = (0..N_HEX).find(|&h| h != s.robber as usize).unwrap();
+        s.step(MOVE_ROBBER + h);
+        if s.phase == Phase::Steal {
+            let a = mask_iter(&s.legal_mask()).next().unwrap();
+            s.step(a);
+        }
+        assert_eq!(s.largest_army, if i >= 2 { 0 } else { -1 });
+    }
+}
+
+#[test]
+fn dev_card_not_playable_on_purchase_turn() {
+    let mut s = after_setup(2, 9);
+    s.step(ROLL);
+    let mut rng = Rng::new(0);
+    while s.phase != Phase::Main {
+        s.step(heuristic_action(&s, &mut rng));
+    }
+    // Rig the deck so the next card is a knight.
+    s.dev_deck[s.dev_deck_len as usize - 1] = DEV_KNIGHT as u8;
+    s.hands[0] = [0, 0, 1, 1, 1];
+    s.step(BUY_DEV);
+    assert!(!s.is_legal(PLAY_KNIGHT));
+    s.step(END_TURN);
+    assert_eq!(s.dev_new[0], [0; 5]);
+}
+
+// ------------------------------------------------------------------ invariants over many games
+
+fn check_invariants(s: &State, played_dev: u32) {
+    let n = s.n();
+    for r in 0..5 {
+        let held: u32 = (0..n).map(|p| s.hands[p][r] as u32).sum();
+        assert_eq!(held + s.bank[r] as u32, 19, "resource {r} not conserved");
+    }
+    let devs: u32 = (0..n).map(|p| s.dev_total(p)).sum();
+    assert_eq!(devs + s.dev_deck_len as u32 + played_dev, 25, "dev cards not conserved");
+    let mut occ = 0u64;
+    let mut roads = 0u128;
+    for p in 0..n {
+        assert!(s.settlements[p].count_ones() <= 5);
+        assert!(s.cities[p].count_ones() <= 4);
+        assert!(s.roads[p].count_ones() <= 15);
+        assert_eq!(s.settlements[p] & s.cities[p], 0);
+        assert_eq!(occ & s.buildings(p), 0, "two buildings on one vertex");
+        assert_eq!(roads & s.roads[p], 0, "two roads on one edge");
+        occ |= s.buildings(p);
+        roads |= s.roads[p];
+        assert_eq!(s.road_len[p], s.longest_road_of(p));
+        for r in 0..5 {
+            assert!(s.dev_new[p][r] <= s.dev_hand[p][r]);
+        }
+    }
+    for v in bits64(occ) {
+        assert_eq!(TOPO.vertex_neighbors[v] & occ, 0, "distance rule broken at {v}");
+    }
+    if s.longest_road >= 0 {
+        let h = s.longest_road as usize;
+        assert!(s.road_len[h] >= 5);
+        assert!((0..n).all(|q| s.road_len[q] <= s.road_len[h]));
+    }
+    if s.largest_army >= 0 {
+        let h = s.largest_army as usize;
+        assert!(s.knights[h] >= 3);
+        assert!((0..n).all(|q| s.knights[q] <= s.knights[h]));
+    }
+    if s.is_over() {
+        if s.winner >= 0 {
+            assert!(s.vp(s.winner as usize) >= s.cfg.vp_target as u32);
+        }
+    } else {
+        assert!(mask_count(&s.legal_mask()) > 0, "no legal action in {:?}", s.phase);
+    }
+}
+
+fn stress(games: u64, heuristic_mix: bool, random_board: bool) {
+    let mut obs = vec![0f32; OBS_SIZE];
+    let mut decided = 0;
+    for g in 0..games {
+        let n = 2 + (g % 3) as u8;
+        let mut s = State::new(Config { random_board, ..cfg(n) }, g);
+        let mut rng = Rng::new(g ^ 99);
+        let mut played = 0;
+        let mut steps = 0;
+        while !s.is_over() {
+            let a = if heuristic_mix && (s.actor() + g as usize) % 2 == 0 {
+                heuristic_action(&s, &mut rng)
+            } else {
+                random_action(&s, &mut rng)
+            };
+            assert!(s.is_legal(a));
+            if a == PLAY_KNIGHT || a == PLAY_ROAD_BUILDING || (PLAY_MONOPOLY..MOVE_ROBBER).contains(&a) {
+                played += 1;
+            }
+            s.step(a);
+            if steps % 7 == 0 {
+                write_obs(&s, &mut obs);
+                assert!(obs.iter().all(|x| x.is_finite() && *x >= 0.0));
+            }
+            check_invariants(&s, played);
+            steps += 1;
+            assert!(steps < 200_000, "game did not terminate");
+        }
+        decided += (s.winner >= 0) as u32;
+    }
+    if heuristic_mix {
+        assert!(decided as u64 > games * 9 / 10, "too many draws: {decided}/{games}");
+    }
+}
+
+#[test]
+fn stress_random_games() {
+    stress(300, false, false);
+}
+
+#[test]
+fn stress_mixed_games_random_boards() {
+    stress(300, true, true);
+}
+
+#[test]
+#[ignore = "long; run with --release -- --ignored"]
+fn stress_many_games() {
+    stress(100_000, true, true);
+}
+
+#[test]
+fn determinism() {
+    for seed in 0..20 {
+        let play = || {
+            let mut s = State::new(cfg(4), seed);
+            let mut rng = Rng::new(seed);
+            let mut actions = vec![];
+            while !s.is_over() {
+                let a = heuristic_action(&s, &mut rng);
+                actions.push(a);
+                s.step(a);
+            }
+            (actions, s.winner, s.turn)
+        };
+        assert_eq!(play(), play());
+    }
+}
+
+#[test]
+fn replay_from_actions() {
+    let mut s = State::new(cfg(4), 42);
+    let mut rng = Rng::new(1);
+    let mut actions = vec![];
+    while !s.is_over() {
+        let a = heuristic_action(&s, &mut rng);
+        actions.push(a);
+        s.step(a);
+    }
+    let mut r = State::new(cfg(4), 42);
+    for &a in &actions {
+        r.try_step(a).unwrap();
+    }
+    assert_eq!(r.winner, s.winner);
+    assert_eq!(r.hands, s.hands);
+    assert_eq!(r.roads, s.roads);
+}
+
+#[test]
+fn heuristic_beats_random() {
+    let mut wins = 0;
+    let games = 200;
+    for g in 0..games {
+        let mut s = State::new(cfg(4), g);
+        let mut rng = Rng::new(g);
+        let hero = (g % 4) as usize;
+        while !s.is_over() {
+            let a = if s.actor() == hero { heuristic_action(&s, &mut rng) } else { random_action(&s, &mut rng) };
+            s.step(a);
+        }
+        wins += (s.winner == hero as i8) as u32;
+    }
+    assert!(wins > games as u32 * 3 / 4, "heuristic won only {wins}/{games}");
+}

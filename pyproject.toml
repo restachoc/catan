@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "catan-rl"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["numpy", "fastapi", "uvicorn[standard]"]
+
+[project.optional-dependencies]
+train = ["torch"]
+
+[tool.maturin]
+manifest-path = "engine/catan-py/Cargo.toml"
+python-source = "python"
+module-name = "catan_rl._engine"
+features = ["pyo3/extension-module"]
