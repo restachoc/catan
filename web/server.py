@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
 from pathlib import Path
 
@@ -34,6 +35,22 @@ BOTS = {
 
 def register_bot(name: str, fn) -> None:
     BOTS[name] = fn
+
+
+def register_policies() -> None:
+    """Expose trained checkpoints as bots: $CATAN_POLICY, plus runs/<name>/best.pt for each run."""
+    try:
+        from catan_rl.model import PolicyBot
+    except ImportError:  # torch not installed
+        return
+    paths = {f"ppo:{p.parent.name}": p for p in sorted((ROOT.parent / "runs").glob("*/best.pt"))}
+    if os.environ.get("CATAN_POLICY"):
+        paths["ppo"] = Path(os.environ["CATAN_POLICY"])
+    for name, path in paths.items():
+        register_bot(name, PolicyBot(path, greedy=False))
+
+
+register_policies()
 
 
 @app.get("/")

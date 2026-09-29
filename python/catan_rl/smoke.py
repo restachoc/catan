@@ -34,6 +34,7 @@ def vecenv_games(num_envs: int = 256, target_games: int = 10_000, seats=None) ->
     done = np.zeros(num_envs, np.bool_)
     winner = np.zeros(num_envs, np.int64)
     length = np.zeros(num_envs, np.int64)
+    final_vp = np.zeros((num_envs, 4), np.int64)
     env.reset(obs, mask, actor)
     rng = np.random.default_rng(0)
 
@@ -44,7 +45,7 @@ def vecenv_games(num_envs: int = 256, target_games: int = 10_000, seats=None) ->
         assert mask.any(axis=1).all(), "an env has no legal action"
         assert np.isfinite(obs).all()
         a = random_masked(mask, rng)
-        env.step(a, obs, mask, actor, done, winner, length)
+        env.step(a, obs, mask, actor, done, winner, length, final_vp)
         steps += num_envs
         n_done = int(done.sum())
         games += n_done

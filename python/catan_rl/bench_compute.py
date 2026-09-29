@@ -48,6 +48,7 @@ def bench_rollout(net: nn.Module, device: str, num_envs: int, steps: int) -> flo
     done = np.zeros(num_envs, np.bool_)
     winner = np.zeros(num_envs, np.int64)
     length = np.zeros(num_envs, np.int64)
+    final_vp = np.zeros((num_envs, 4), np.int64)
     env.reset(obs, mask, actor)
     t = time.perf_counter()
     with torch.inference_mode():
@@ -55,7 +56,7 @@ def bench_rollout(net: nn.Module, device: str, num_envs: int, steps: int) -> flo
             logits, _ = net(torch.from_numpy(obs).to(device))
             logits = logits.masked_fill(~torch.from_numpy(mask).to(device), -1e9)
             a = torch.distributions.Categorical(logits=logits).sample().cpu().numpy()
-            env.step(a, obs, mask, actor, done, winner, length)
+            env.step(a, obs, mask, actor, done, winner, length, final_vp)
     return num_envs * steps / (time.perf_counter() - t)
 
 

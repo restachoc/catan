@@ -154,7 +154,8 @@ struct Slot {
 ///
 /// All outputs are written into caller-owned numpy buffers:
 ///   obs [N, OBS_SIZE] f32, mask [N, N_ACTIONS] bool, actor [N] i64,
-///   done [N] bool, winner [N] i64 (-1 draw / not done), length [N] i64 (steps of finished game).
+///   done [N] bool, winner [N] i64 (-1 draw / not done), length [N] i64 (steps of finished game),
+///   final_vp [N, 4] i64 (victory points per seat of the finished game, incl. hidden cards).
 #[pyclass(module = "catan_rl._engine")]
 struct VecEnv {
     slots: Vec<Slot>,
@@ -288,6 +289,7 @@ impl VecEnv {
         done: &Bound<'_, PyArray1<bool>>,
         winner: &Bound<'_, PyArray1<i64>>,
         length: &Bound<'_, PyArray1<i64>>,
+        final_vp: &Bound<'_, PyArray2<i64>>,
     ) -> PyResult<()> {
         let actions = actions.as_slice()?;
         if actions.len() != self.slots.len() {
@@ -310,6 +312,8 @@ impl VecEnv {
         let done = done.as_slice_mut()?;
         let winner = winner.as_slice_mut()?;
         let length = length.as_slice_mut()?;
+        let mut final_vp = final_vp.readwrite();
+        let final_vp = final_vp.as_slice_mut()?;
         let cfg = self.cfg;
         let base = self.next_seed;
         self.next_seed += self.slots.len() as u64;
@@ -323,10 +327,11 @@ impl VecEnv {
                 .zip(done.par_iter_mut())
                 .zip(winner.par_iter_mut())
                 .zip(length.par_iter_mut())
+                .zip(final_vp.par_chunks_mut(4))
                 .zip(actions.par_iter())
                 .enumerate()
                 .with_min_len(16)
-                .for_each(|(i, (((((((slot, o), m), a), d), w), l), &act))| {
+                .for_each(|(i, ((((((((slot, o), m), a), d), w), l), fv), &act))| {
                     slot.state.step(act as usize);
                     slot.steps += 1;
                     Self::advance_bots(slot);
@@ -334,6 +339,9 @@ impl VecEnv {
                         *d = true;
                         *w = slot.state.winner as i64;
                         *l = slot.steps as i64;
+                        for (p, v) in fv.iter_mut().enumerate() {
+                            *v = if p < slot.state.n() { slot.state.vp(p) as i64 } else { 0 };
+                        }
                         Self::reset_slot(slot, cfg, base + i as u64);
                         Self::advance_bots(slot);
                     } else {
