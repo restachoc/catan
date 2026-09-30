@@ -404,3 +404,115 @@ fn heuristic_beats_random() {
     }
     assert!(wins > games as u32 * 3 / 4, "heuristic won only {wins}/{games}");
 }
+
+// ------------------------------------------------------------------ MCTS
+
+mod mcts_tests {
+    use catan_core::mcts::*;
+    use catan_core::obs::OBS_SIZE;
+    use catan_core::rng::Rng;
+    use catan_core::state::*;
+    use catan_core::{write_obs, N_ACTIONS};
+
+    /// Uniform priors and a flat value: a search driven only by its own terminal backups.
+    fn run(root: State, sims: u32) -> Search {
+        let mut s = Search::new(root, MctsConfig { sims, ..MctsConfig::default() }, 7);
+        let priors = vec![1.0f32; N_ACTIONS];
+        let mut obs = vec![0f32; OBS_SIZE];
+        while let Some(leaf) = s.select() {
+            write_obs(leaf, &mut obs); // the real driver encodes every leaf; make sure that works too
+            let v = [0.25; MAX_P];
+            s.expand(&priors, &v);
+        }
+        s
+    }
+
+    #[test]
+    fn visits_sum_to_sims_and_are_legal() {
+        let mut rng = Rng::new(3);
+        for seed in 0..30 {
+            let mut st = State::new(Config::default(), seed);
+            // Advance a random amount into the game.
+            for _ in 0..(seed * 13) {
+                if st.is_over() {
+                    break;
+                }
+                st.step(catan_core::bots::heuristic_action(&st, &mut rng));
+            }
+            if st.is_over() {
+                continue;
+            }
+            let s = run(st, 100);
+            let visits = s.visits();
+            let total: u32 = visits.iter().map(|v| v.1).sum();
+            assert_eq!(total, 99, "root expansion uses one simulation");
+            for (a, _) in visits {
+                assert!(st.is_legal(a));
+            }
+        }
+    }
+
+    #[test]
+    fn search_finds_immediate_win() {
+        // Player 0 at 9 VP can build a city for the win; everything else ends the turn.
+        let mut rng = Rng::new(0);
+        let mut st = State::new(Config::default(), 11);
+        while st.phase != Phase::Main || st.cur != 0 {
+            st.step(catan_core::bots::heuristic_action(&st, &mut rng));
+        }
+        st.dev_hand[0][DEV_VP] = (9 - st.vp(0)) as u8 + st.dev_hand[0][DEV_VP];
+        assert_eq!(st.vp(0), 9);
+        let give: [u8; 5] = [0, 0, 0, 2, 3];
+        for r in 0..5 {
+            let need = give[r].saturating_sub(st.hands[0][r]);
+            st.hands[0][r] += need;
+            st.bank[r] -= need;
+        }
+        let s = run(st, 400);
+        let best = s.visits().into_iter().max_by_key(|v| v.1).unwrap().0;
+        assert!((catan_core::actions::CITY..catan_core::actions::ROAD).contains(&best), "picked {}", catan_core::action_name(best));
+        assert!(s.root_value()[0] > 0.9);
+    }
+
+    #[test]
+    fn determinize_conserves_cards() {
+        let mut rng = Rng::new(5);
+        for seed in 0..50 {
+            let mut st = State::new(Config::default(), seed);
+            while !st.is_over() && st.turn < 120 {
+                st.step(catan_core::bots::heuristic_action(&st, &mut rng));
+            }
+            let viewer = st.actor();
+            let before: Vec<u32> = (0..4).map(|p| st.dev_total(p)).collect();
+            let mut deck_before = [0u32; 5];
+            for p in 0..4 {
+                for c in 0..5 {
+                    deck_before[c] += st.dev_hand[p][c] as u32;
+                }
+            }
+            for &c in &st.dev_deck[..st.dev_deck_len as usize] {
+                deck_before[c as usize] += 1;
+            }
+            let own = st.dev_hand[viewer];
+            let mut d = st;
+            determinize(&mut d, viewer, &mut rng);
+            assert_eq!(d.dev_hand[viewer], own);
+            for p in 0..4 {
+                assert_eq!(d.dev_total(p), before[p]);
+                for c in 0..5 {
+                    assert!(d.dev_new[p][c] <= d.dev_hand[p][c]);
+                }
+            }
+            let mut after = [0u32; 5];
+            for p in 0..4 {
+                for c in 0..5 {
+                    after[c] += d.dev_hand[p][c] as u32;
+                }
+            }
+            for &c in &d.dev_deck[..d.dev_deck_len as usize] {
+                after[c as usize] += 1;
+            }
+            assert_eq!(after, deck_before);
+        }
+    }
+}

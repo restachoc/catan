@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod board;
 pub mod bots;
+pub mod mcts;
 pub mod obs;
 pub mod rng;
 pub mod state;

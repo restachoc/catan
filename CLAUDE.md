@@ -33,16 +33,18 @@ engine/                   Cargo workspace (release profile: lto=fat, codegen-uni
     actions.rs            flat action-space constants, Mask bitset helpers, action_name()
     obs.rs                actor-relative flat f32 observation (OBS_SIZE)
     bots.rs               random_action, heuristic_action (greedy rules; see the doc comments there)
+    mcts.rs               AlphaZero MCTS (PUCT), sampled chance nodes, determinization of hidden dev cards
     view.rs               serde views for the UI (board_view, state_view with hidden info per viewer)
     rng.rs                wyrand PRNG (deterministic)
     stats.rs              end-of-game per-player stats (STAT_NAMES) for strategy analysis
   catan-core/tests/rules.rs   rule unit tests, invariant stress tests, determinism/replay tests
   catan-core/benches/playout.rs   throughput benchmark (std::time; harness = false)
-  catan-py/src/lib.rs     PyO3 module `catan_rl._engine`: Game, VecEnv, action_names, bot_tournament
+  catan-py/src/lib.rs     PyO3 module `catan_rl._engine`: Game, VecEnv, AzPool, action_names, bot_tournament
 python/catan_rl/
   __init__.py             re-exports + ACTIONS offset dict (derived from action names)
   model.py                PolicyNet (MLP + LayerNorm, masked policy head, value head), save/load, PolicyBot
-  ppo.py                  trainer (Config dataclass = CLI flags)
+  ppo.py                  PPO trainer (Config dataclass = CLI flags)
+  az.py                   AlphaZero trainer: AzPool self-play (Rust) + replay buffer + AZNet
   evaluate.py             evaluate() vs bots or checkpoints; replay export
   strategy.py             strategy mix of a run's snapshots in self-play (spending-based classification)
   plot_runs.py            eval curves of several runs side by side
@@ -132,6 +134,22 @@ cd engine && cargo bench -p catan-core                    # engine throughput
   against 3 heuristic bots.
 - **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
   `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
+
+## AlphaZero (az.py, mcts.rs)
+
+- `AzPool` searches all games in lockstep: `select()` returns one leaf per searching game, Python
+  evaluates the batch with `AZNet.evaluate`, `expand()` backs it up; when `select()` returns 0,
+  `advance()` plays the chosen moves. Forced moves (one legal action) are played without search and
+  are not training samples.
+- Chance: each edge traversal replays the action with a fresh RNG seed; children are keyed by
+  `state_key` (a position hash without the RNG), so dice, dev draws and steals branch naturally.
+- Hidden info: `determinize` reshuffles opponents' unplayed dev cards and the deck before each
+  search. Resource hands are treated as known (approximates card counting).
+- Value head = 4-way softmax over seats relative to the player to move; targets are the winner one-hot
+  (draw = uniform). Samples carry the true legal mask for the policy loss.
+- Overfitting hazard: one game yields ~150-350 samples with the same outcome, so a small replay
+  memorises games. Keep `min_replay` around 100k samples (~300 games) or larger.
+- Throughput on this CPU (64 sims, 256 games): ~500 searched moves/s with 2x256, ~300/s with 3x512.
 
 ## Gotchas
 
