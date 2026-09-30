@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 # Reference categorical palette (fixed order, light mode).
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 
 
@@ -46,7 +46,7 @@ def main() -> None:
         "font.family": "sans-serif", "font.size": 11, "text.color": INK, "axes.labelcolor": INK2,
         "xtick.color": INK2, "ytick.color": INK2, "axes.edgecolor": GRID,
     })
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor=SURFACE)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.8), facecolor=SURFACE)
     panels = [
         (axes[0], 1, "Win rate vs 3 heuristic bots", "%", 25, "chance (25%)"),
         (axes[1], 2, "Average final VP vs 3 heuristic bots", "VP", 10, "win threshold (10 VP)"),
@@ -83,10 +83,14 @@ def main() -> None:
         ax.set_xlabel("Training steps (millions)")
         ax.set_ylim(0, 60 if unit == "%" else 10.5)
         ax.set_xlim(0, max(max(d[0]) for d in data) * 1.12)
-    axes[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(0, 0.93), labelcolor=INK)
+    # Legend below both panels, so it never covers a curve.
+    handles, names = axes[0].get_legend_handles_labels()
+    fig.legend(handles, names, loc="lower center", bbox_to_anchor=(0.5, 0.045), ncol=min(3, len(names)),
+               frameon=False, labelcolor=INK)
     fig.text(0.01, 0.01, "Each point: 400 evaluation games, policy in one seat, 3 heuristic bots in the others.",
              color=INK2, fontsize=9)
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    rows = -(-len(names) // 3)
+    fig.tight_layout(rect=(0, 0.06 + 0.045 * rows, 1, 1))
     out = Path(args.out or f"plots/{'_vs_'.join(args.runs)}.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150, facecolor=SURFACE)

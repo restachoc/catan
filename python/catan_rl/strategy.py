@@ -165,7 +165,7 @@ def plot(run: str, rows: list[dict]) -> Path:
         # Same hue as the matching strategy above (roads = road builder, cities / dev cards = the OWS
         # variants); extra settlements take the next free categorical slot (magenta).
         (1, [l for _, l in SPEND], [f"{{g}}:spend_{k}" for k, _ in SPEND],
-         [SERIES[0], "#e87ba4", SERIES[3], SERIES[2]], "where resource cards were spent"),
+         [SERIES[0], SERIES[4], SERIES[3], SERIES[2]], "where resource cards were spent"),
     ]
     for row_i, names, keys, colors, what in layers:
         for col_i, (group, title) in enumerate((("winners", "Winning players"), ("all", "All players"))):

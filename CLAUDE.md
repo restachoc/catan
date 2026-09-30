@@ -4,19 +4,42 @@ Guidance for Claude Code sessions in this repo. **Keep this file clean and curre
 here stops being true (a gotcha gets fixed, a milestone is done, a file moves), update or delete it in
 the same change. Don't append history; this is a description of the present, not a changelog.
 
+## Claude files
+
+More Claude-facing notes live in `claude/*.md`. Every one of them must be linked here:
+
+| File | Purpose |
+|---|---|
+| [claude/ONGOING.md](claude/ONGOING.md) | **Read first after a context clear.** What's in flight, open decisions, next steps. Update it as work progresses; remove items when done. |
+| [claude/EXPERIMENTS.md](claude/EXPERIMENTS.md) | Training runs so far, their results, and the lessons that still hold. |
+
+**If you find a `.md` file in `claude/` (or elsewhere in the repo, outside `.venv/` and `engine/target/`)
+that isn't linked from this file or the README, warn the owner.** Either link it or delete it.
+
+## Working with the owner
+
+- When they say "answer shortly", keep it to a few lines.
+- Long jobs (training runs, big evaluations) run in the background. **Don't poll them**; wait for the
+  completion notification and then report. Short status lines are fine when a notification arrives.
+- For experiments: say exactly what changed versus the baseline run. Point out when two variables
+  changed at once, since that makes the result ambiguous.
+- Charts go to `plots/` (one file per comparison, clean names). Look at every rendered chart before
+  reporting it (label collisions, colours that mean different things in different panels).
+- Ask before starting multi-hour runs unless the owner asked for one.
+
 ## Project goal
 
 Settlers of Catan with three parts:
 1. **Very fast rules engine** (Rust). Speed matters because RL training throughput depends on it.
 2. **Good-looking web UI** that renders fast, for playing against bots and watching replays.
-3. **RL bot** (PPO self-play + league) that should eventually beat the owner at Catan.
+3. **RL bot** that should eventually beat the owner at Catan.
 
 The bot is built in versions of increasing difficulty:
 
 | Version | Board | Trading | Status |
 |---|---|---|---|
-| v1 | fixed beginner board | none (bank/port only) | **current**: trainer works; diagnostic run beats the heuristic bot 44% of the time (chance = 25%); full run not started |
-| v2 | random boards | none | engine supports `random_board`; needs training (likely a GNN/transformer, ideally on GPU) |
+| v1 | fixed beginner board | none (bank/port only) | **current**: PPO diagnostic run `diag` beats the heuristic bot 43% of the time (chance = 25%); long run not started |
+| v2 | random boards | none | engine supports `random_board`; the flat MLP fails here even when trained on random boards (runs 3 and 4 in EXPERIMENTS.md), so it needs a board-structured network |
 | v3 | either | bots accept/reject the human's offers | not started |
 | v4 | either | bots propose structured trades | not started |
 
@@ -34,27 +57,28 @@ engine/                   Cargo workspace (release profile: lto=fat, codegen-uni
     obs.rs                actor-relative flat f32 observation (OBS_SIZE)
     bots.rs               random_action, heuristic_action (greedy rules; see the doc comments there)
     mcts.rs               AlphaZero MCTS (PUCT), sampled chance nodes, determinization of hidden dev cards
+    stats.rs              end-of-game per-player stats (STAT_NAMES) for strategy analysis
     view.rs               serde views for the UI (board_view, state_view with hidden info per viewer)
     rng.rs                wyrand PRNG (deterministic)
-    stats.rs              end-of-game per-player stats (STAT_NAMES) for strategy analysis
-  catan-core/tests/rules.rs   rule unit tests, invariant stress tests, determinism/replay tests
+  catan-core/tests/rules.rs   rule tests, invariant stress tests, determinism/replay, MCTS tests
   catan-core/benches/playout.rs   throughput benchmark (std::time; harness = false)
   catan-py/src/lib.rs     PyO3 module `catan_rl._engine`: Game, VecEnv, AzPool, action_names, bot_tournament
 python/catan_rl/
   __init__.py             re-exports + ACTIONS offset dict (derived from action names)
-  model.py                PolicyNet (MLP + LayerNorm, masked policy head, value head), save/load, PolicyBot
+  model.py                PolicyNet (PPO) and AZNet (AlphaZero): MLP + LayerNorm torso; save/load; PolicyBot
   ppo.py                  PPO trainer (Config dataclass = CLI flags)
   az.py                   AlphaZero trainer: AzPool self-play (Rust) + replay buffer + AZNet
-  evaluate.py             evaluate() vs bots or checkpoints; replay export
-  strategy.py             strategy mix of a run's snapshots in self-play (spending-based classification)
+  evaluate.py             evaluate() vs bots or checkpoints (--random-board); replay export
+  strategy.py             strategy mix of a run's snapshots in self-play -> plots/<run>_strategy.png
   plot_runs.py            eval curves of several runs side by side
-  generalization.py       best.pt of each run on the fixed vs random boards (cached per run)
+  generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
   bench_compute.py        rollout/train throughput and time projections
   smoke.py                end-to-end bindings check
 web/server.py             FastAPI + WebSocket; owns the Game; registers bots (incl. runs/*/best.pt)
 web/static/               index.html, style.css, board.js (canvas renderer), ui.js (session + panels + replays)
 pyproject.toml            maturin config (python-source = python, module = catan_rl._engine)
-runs/, replays/, plots/   training output / saved games / comparison charts (gitignored)
+runs/, replays/, plots/   training output / saved games / charts (all gitignored)
+claude/                   Claude notes (see "Claude files" above)
 ```
 
 ## Commands
@@ -63,25 +87,32 @@ Always use the venv (`.venv/bin/...`). Rust is installed via rustup; run `source
 
 ```bash
 .venv/bin/maturin develop --release                       # REQUIRED after any Rust change (see gotchas)
-cd engine && cargo test -p catan-core --release           # 15 tests, ~1 s
+cd engine && cargo test -p catan-core --release           # 18 tests, ~1 s
 cd engine && cargo test -p catan-core --release -- --ignored   # 100k-game invariant stress test, ~20 s
 cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python -m catan_rl.smoke                        # bindings end to end
 .venv/bin/python -m catan_rl.bench_compute                # NN throughput and training-time projections
 .venv/bin/uvicorn web.server:app --port 8765              # UI at http://localhost:8765
-.venv/bin/python -m catan_rl.ppo --name <run> [flags]     # train; flags mirror ppo.Config fields
-.venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--replays N]
-.venv/bin/python -m catan_rl.strategy <run> [--games 300]   # -> plots/<run>_strategy.png, cached in runs/<run>/strategy.csv
-.venv/bin/python -m catan_rl.generalization <run> ...           # -> plots/generalization.png
-.venv/bin/python -m catan_rl.plot_runs <run> <run> ...  # eval curves side by side -> plots/<run>_vs_<run>.png
+
+# Long runs: always under nice, so interactive jobs get priority (see "CPU sharing")
+nice -n 10 .venv/bin/python -m catan_rl.ppo --name <run> [flags]   # flags mirror ppo.Config fields
+nice -n 10 .venv/bin/python -m catan_rl.az --name <run> [flags]    # flags mirror az.Config fields
+
+.venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--random-board] [--replays N]
+.venv/bin/python -m catan_rl.strategy <run> [--games 300]   # cached in runs/<run>/strategy.csv
+.venv/bin/python -m catan_rl.generalization <run> ... [--labels ...]   # cached in runs/<run>/generalization.json
+.venv/bin/python -m catan_rl.plot_runs <run> ... [--labels ...] [--out plots/<name>.png]   # default plots/<a>_vs_<b>.png
 ```
+
+The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
+`--num-envs 256 --rollout 128 --total-steps 6e6 --hidden 256 --layers 2 --snapshot-every 10 --eval-every 10 --eval-games 400`.
 
 ## Architecture invariants (don't break these)
 
 - **The UI never implements rules.** The server sends `state.legal` (action ids); the UI only maps ids to
   clickable spots and buttons. Any rule change lives in `state.rs` only.
 - **`State` is `Copy` and allocation-free.** Bitboards: `u64` per player for settlements/cities, `u128` per
-  player for roads. This keeps stepping fast and makes cloning for search (MCTS later) free.
+  player for roads. This keeps stepping fast and makes cloning for search free.
 - **Determinism.** A game is fully defined by `(seed, config, action list)`, and replays depend on this. All
   randomness (dice, dev deck, steals, random board) comes from `State.rng`; bots use their own `Rng`.
 - **`step()` checks legality only via `debug_assert`.** Use `try_step()` for untrusted input. `Game.step` in
@@ -100,10 +131,13 @@ cd engine && cargo bench -p catan-core                    # engine throughput
   automatically when there is exactly one candidate; the `Steal` phase appears only with 2+ candidates.
 - Bank shortage: if the bank can't cover all demand for a resource, it pays only if exactly one player is owed.
 - Year of Plenty offers only pairs the bank can cover.
-- Longest Road is ≥5, broken by opponent settlements, and the holder keeps it on ties. If the holder
-  drops and others tie, nobody holds it. Largest Army is ≥3 knights and strictly more than the holder.
+- Longest Road (LR) is ≥5, broken by opponent settlements, and the holder keeps it on ties. If the holder
+  drops and others tie, nobody holds it. Largest Army (LA) is ≥3 knights and strictly more than the holder.
 - `max_turns` (default 500) ends the game as a draw (`winner = -1`).
 - No player-to-player trading yet. Its action ids don't exist yet; adding them changes `N_ACTIONS` (see below).
+- The heuristic bot (`bots.rs`) is greedy and rule-based: city > settlement > useful dev card > road toward a
+  new spot > one-card bank trade > buy dev card > end turn. It never blocks leaders or plans ahead, but it
+  plays any board equally well, which makes it a fair yardstick for random boards.
 
 ## Action space and observation
 
@@ -112,32 +146,43 @@ cd engine && cargo bench -p catan-core                    # engine throughput
   YOP 190+pair (15 unordered pairs), MOVE_ROBBER 205+h, STEAL 224+k (k = seats after the current
   player), DISCARD 228+r, TRADE 233 + give*4 + (get index skipping give).
 - Resources are indexed 0 wood, 1 brick, 2 wool, 3 grain, 4 ore, 5 desert. Port type 5 = 3:1.
-- The observation (`OBS_SIZE = 1292`) is **actor-relative**: seat 0 is always the acting player. Opponents
-  are encoded with public info only (card counts, dev-card counts, not contents).
+- The observation (`OBS_SIZE = 1292`) is **actor-relative**: seat 0 is always the acting player. Blocks: 19 hexes
+  × 8, 54 vertices × 14, 72 edges × 4, 4 players × 11, own hand/dev cards/ratios 21, globals 31. Opponents are
+  encoded with public info only (card counts, dev-card counts, not contents).
 - Python derives offsets from action names (`catan_rl.ACTIONS`) and the web UI fetches them from `/api/meta`.
   **But `ui.js` duplicates the YOP pair order and the `tradeId` formula**, so update both if the layout changes.
 
-## RL training (ppo.py)
+## Networks
+
+- Both trainers use a flat MLP: 1292 → [Linear → LayerNorm → ReLU] × layers → heads. All comparison runs use
+  2×256 (~0.46M params). PolicyNet (PPO) has a scalar value head; AZNet has a 4-way value head (win
+  probability per seat, relative to the player to move).
+- **Known limitation:** the MLP has no notion of board structure (no weight sharing between vertices/hexes), so
+  it memorises one layout and does not transfer to random boards. A GNN/transformer over hexes, vertices and
+  edges with per-location policy heads is the planned replacement.
+- **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
+  `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
+
+## PPO training (ppo.py)
 
 - Env groups by index: `frac_heuristic` (learner in one seat vs 3 Rust heuristic bots played inside the
   engine), `frac_selfplay` (learner in all seats), and the rest league (learner in one seat vs frozen
-  snapshots from `runs/<name>/pool/`; the learner itself while the pool is empty).
+  snapshots from `runs/<name>/pool/`; the learner itself while the pool is empty). Pure self-play is
+  `--frac-heuristic 0 --frac-selfplay 1`.
 - Samples are tagged (env, seat). GAE runs per sequence and bootstraps from the same seat's next decision.
   Unfinished tails are **carried into the next rollout** rather than bootstrapped. League seat assignment
   only changes at game end; changing it mid-game would orphan carried samples.
 - Reward is terminal: +1 win, −1/(n−1) loss, 0 draw, plus `vp_coef` × (own VP − mean opponent VP)/10,
-  annealed to 0 over `vp_anneal_frac` of training. The shaping term matters: a fresh policy never beats
-  the heuristic bot, so pure win/loss gives no signal early on.
+  annealed to 0 over `vp_anneal_frac` of training. `--vp-coef 0` gives pure win/loss.
+- The learning rate decays linearly to 5% at `total_steps`, so the last third of a short run barely updates.
+  Take that into account before calling a plateau, and use `--resume ... --total-steps <larger>` to continue.
+- PPO normalises advantages per minibatch, so reward scale does not change the update size; sparse rewards
+  mean noisier updates, not smaller ones. Raising the learning rate is not the fix.
 - Outputs go to `runs/<name>/`: `metrics.csv`, `latest.pt` (includes optimizer state, used by `--resume`),
   `best.pt` (best eval win rate vs heuristic), `pool/`, and `config.json`.
-- Measured on this machine (14 cores, no GPU): about 7k samples/s with a 2×256 MLP including league
-  inference, and about 7.5k/s for a 3×512 MLP before league overhead. The network is the bottleneck; the
-  engine does 13M raw steps/s per core. Diagnostic run `runs/diag` (2×256, 6M steps, ~15 min) won 44%
-  against 3 heuristic bots.
-- The flat MLP does not generalise across boards: run `diag` wins 43% vs heuristic bots on the board
-  it trained on and 0.8% on random boards. Board-structured models (GNN/transformer) are the planned fix.
-- **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
-  `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
+- Throughput on this machine (14 cores, no GPU): ~6.5–7k samples/s for 2×256 with league inference,
+  ~10k/s for pure self-play, ~7.5k/s for 3×512 before league overhead. The network is the bottleneck; the
+  engine does 13M raw steps/s per core.
 
 ## AlphaZero (az.py, mcts.rs)
 
@@ -149,50 +194,61 @@ cd engine && cargo bench -p catan-core                    # engine throughput
   `state_key` (a position hash without the RNG), so dice, dev draws and steals branch naturally.
 - Hidden info: `determinize` reshuffles opponents' unplayed dev cards and the deck before each
   search. Resource hands are treated as known (approximates card counting).
-- Value head = 4-way softmax over seats relative to the player to move; targets are the winner one-hot
-  (draw = uniform). Samples carry the true legal mask for the policy loss.
-- Overfitting hazard: one game yields ~150-350 samples with the same outcome, so a small replay
-  memorises games. Keep `min_replay` around 100k samples (~300 games) or larger.
-- Throughput on this CPU (64 sims, 256 games): ~500 searched moves/s with 2x256, ~300/s with 3x512.
+- Value targets are the winner one-hot (draw = uniform). Samples carry the true legal mask for the policy
+  loss (masking to visited moves only would leave unvisited legal moves unconstrained).
+- **Value memorisation is the main failure mode:** one game yields ~150–350 samples with the same outcome,
+  and the MLP can recognise a game from its board, so it learns "this game → seat 2 wins". Always measure the
+  value loss on fresh held-out games (uniform guessing = ln 4 ≈ 1.39); the training loss is meaningless.
+  See EXPERIMENTS.md for the planned fixes.
+- Throughput on this CPU (64 sims, 256 games): ~500 searched moves/s with 2×256, ~300/s with 3×512;
+  about 60% of the time is the network, 40% the Rust search.
+
+## CPU sharing
+
+- Every heavy job (training, evaluation, strategy analysis) spawns ~14 torch threads plus ~14 rayon
+  threads. Two such jobs at full width thrash: training fell from 7.3k to 1.2k samples/s while a strategy
+  analysis ran next to it.
+- Run long jobs under `nice -n 10` (or `renice -n 10 -p <pid>` for a running one; no root needed). When
+  running a second job alongside, cap it: `RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4` and
+  `torch.set_num_threads(4)`. That combination slowed a running training by only ~10%.
 
 ## Gotchas
 
 - **Stale extension:** after editing Rust, Python keeps importing the old `_engine` until you rerun
-  `maturin develop --release`. There is no error, just old behaviour.
-- **`pkill -f` / `pgrep -f` self-match:** patterns like `"uvicorn web.server:app"` or `"catan_rl.ppo"` also
-  match the shell running the command, which kills it or makes `until ! pgrep` loops never end. Use
-  background task IDs or a PID file instead.
-- **Don't run two heavy jobs at once** (training, evaluation, strategy analysis). Each one uses every
-  core (torch threads + rayon); together they oversubscribe the 14 cores and each slows 5x+. Run them
-  one after another.
+  `maturin develop --release`. There is no error, just old behaviour. Rebuilding while a training runs is
+  safe (the running process keeps the library it loaded).
+- **`pkill -f` / `pgrep -f` self-match:** patterns like `"catan_rl.ppo"` also match the shell running the
+  command, which kills it or makes `until ! pgrep` loops never end. Anchor the pattern to the process's
+  own command line (`pgrep -f "^.venv/bin/python -m catan_rl.ppo --name <run>"`) or use background task IDs.
 - The web server registers bots only at import time, so restart it after a new `best.pt` appears.
 - pyo3 0.29: `py.detach` releases the GIL (formerly `allow_threads`). `Game` uses
   `#[pyclass(skip_from_py_object)]` to silence the Clone/FromPyObject deprecation.
 - `VecEnv.step` signature: `(actions, obs, mask, actor, done, winner, length, final_vp)`. All are
-  caller-owned numpy buffers, written in place, with auto-reset on game end.
+  caller-owned numpy buffers, written in place, with auto-reset on game end. `last_game_stats()` returns
+  the end-of-game stats of each env's last finished game.
 - Bot seats set with `VecEnv.set_seats` act inside Rust during `step`/`reset`, so Python only sees states
   where an `"external"` seat acts.
+- Evaluations of 400 games move ±3–5 percentage points between checkpoints; use 2000 games for claims.
+- No Node.js on this machine, so the dataviz palette validator can't run; the charts use slots 1–4 of its
+  documented reference palette plus magenta (slot 5) and a neutral grey.
 
 ## Verifying changes
 
-- Strategy classification (`strategy.py`): a player's label comes from where their resource cards went
-  after setup (roads 2, extra settlements 4, cities 5, dev cards 3). Fixed thresholds on raw counts
-  don't work, because even near-random play builds ~15 roads and buys ~5 dev cards.
 - Rules or engine: `cargo test --release` plus the `--ignored` stress test. Add a targeted test in
-  `tests/rules.rs` for any new rule.
+  `tests/rules.rs` for any new rule. Run the MCTS tests in debug once too (`cargo test -p catan-core mcts`),
+  since debug builds check the legality of every replayed move.
 - Performance: `cargo bench` before and after. Current numbers are 13M steps/s per core (random bot) and
   ~1.4–1.8M/s per core including observation encoding.
 - Bindings: `python -m catan_rl.smoke`.
 - UI: take headless screenshots with Chrome and look at them:
   `google-chrome --headless=new --window-size=1440,900 --virtual-time-budget=5000 --screenshot=out.png "http://localhost:8765/?replay=<name>&step=<n>"`
   Also play a game over the WebSocket (see `smoke`-style scripts) to check the server flow.
-- Training: a short run (e.g. `--total-steps 6e6 --hidden 256 --layers 2 --num-envs 256`) should show
-  `eval_vp` rising within ~1M steps and eval win rate above 0.25 after ~3M steps.
+- PPO: the diagnostic recipe above should show `eval_vp` rising within ~1M steps and eval win rate above
+  0.25 after ~3M steps (mixed opponents + VP shaping, fixed board).
 
 ## Conventions
 
 - Match the surrounding style: terse doc comments on modules and non-obvious functions, with no narration.
 - Rust: keep hot paths allocation-free; iterate bitmasks with `bits64`/`bits128`/`bits32`.
 - Python: type hints, dataclass config, numpy buffers over per-env Python loops where possible.
-- Commit with the attribution trailer given by the harness; commit only when asked or at milestones the
-  owner has approved.
+- Commit with the attribution trailer given by the harness; commit at milestones the owner has approved.
