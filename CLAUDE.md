@@ -48,7 +48,7 @@ python/catan_rl/
 web/server.py             FastAPI + WebSocket; owns the Game; registers bots (incl. runs/*/best.pt)
 web/static/               index.html, style.css, board.js (canvas renderer), ui.js (session + panels + replays)
 pyproject.toml            maturin config (python-source = python, module = catan_rl._engine)
-runs/, replays/           training output / saved games (gitignored)
+runs/, replays/, plots/   training output / saved games / comparison charts (gitignored)
 ```
 
 ## Commands
@@ -65,7 +65,7 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/uvicorn web.server:app --port 8765              # UI at http://localhost:8765
 .venv/bin/python -m catan_rl.ppo --name <run> [flags]     # train; flags mirror ppo.Config fields
 .venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--replays N]
-.venv/bin/python -m catan_rl.plot_runs <run> <run> ...  # eval curves side by side -> runs/compare.png
+.venv/bin/python -m catan_rl.plot_runs <run> <run> ...  # eval curves side by side -> plots/<run>_vs_<run>.png
 ```
 
 ## Architecture invariants (don't break these)

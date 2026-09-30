@@ -1,6 +1,8 @@
 """Plot evaluation curves of training runs side by side.
 
-    python -m catan_rl.plot_runs diag selfplay [--labels "Mixed + VP" "Self-play"] [--out runs/compare.png]
+    python -m catan_rl.plot_runs diag selfplay [--labels "Mixed + VP" "Self-play"] [--out plots/x.png]
+
+Output defaults to plots/<run>_vs_<run>.png, one file per comparison.
 
 Two panels sharing the x-axis (training steps): win rate vs 3 heuristic bots, and average final VP.
 """
@@ -36,7 +38,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--labels", nargs="+")
-    ap.add_argument("--out", default="runs/compare.png")
+    ap.add_argument("--out", help="default: plots/<run>_vs_<run>.png")
     args = ap.parse_args()
     labels = args.labels or args.runs
 
@@ -73,9 +75,10 @@ def main() -> None:
     fig.text(0.01, 0.01, "Each point: 400 evaluation games, policy in one seat, 3 heuristic bots in the others.",
              color=INK2, fontsize=9)
     fig.tight_layout(rect=(0, 0.03, 1, 1))
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.out, dpi=150, facecolor=SURFACE)
-    print(f"saved {args.out}")
+    out = Path(args.out or f"plots/{'_vs_'.join(args.runs)}.png")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=150, facecolor=SURFACE)
+    print(f"saved {out}")
 
 
 if __name__ == "__main__":

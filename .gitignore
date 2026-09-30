@@ -6,3 +6,4 @@ runs/
 replays/
 checkpoints/
 runs_*.log
+plots/
