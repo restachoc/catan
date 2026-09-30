@@ -2,6 +2,7 @@
 
     python -m catan_rl.evaluate runs/v1/best.pt [--opponent heuristic|random|<ckpt.pt>] [--games 1000]
     python -m catan_rl.evaluate runs/v1/best.pt --replays 5     # also save replays for the web UI
+    python -m catan_rl.evaluate runs/v1/best.pt --random-board  # on random boards instead of the beginner board
 
 The policy holds one seat (rotating over seats across envs); all other seats are the opponent.
 """
@@ -85,11 +86,13 @@ def main() -> None:
     ap.add_argument("--games", type=int, default=1000)
     ap.add_argument("--players", type=int, default=4)
     ap.add_argument("--greedy", action="store_true")
+    ap.add_argument("--random-board", action="store_true")
     ap.add_argument("--replays", type=int, default=0)
     args = ap.parse_args()
     net = load(args.checkpoint)
     opp = args.opponent if args.opponent in ("heuristic", "random") else load(args.opponent)
-    res = evaluate(net, opp, games=args.games, n_players=args.players, greedy=args.greedy)
+    res = evaluate(net, opp, games=args.games, n_players=args.players, greedy=args.greedy,
+                   random_board=args.random_board)
     print(json.dumps(res, indent=2))
     print(f"(chance level with {args.players} players: {1 / args.players:.3f})")
     if args.replays:

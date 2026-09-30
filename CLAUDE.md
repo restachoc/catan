@@ -48,6 +48,7 @@ python/catan_rl/
   evaluate.py             evaluate() vs bots or checkpoints; replay export
   strategy.py             strategy mix of a run's snapshots in self-play (spending-based classification)
   plot_runs.py            eval curves of several runs side by side
+  generalization.py       best.pt of each run on the fixed vs random boards (cached per run)
   bench_compute.py        rollout/train throughput and time projections
   smoke.py                end-to-end bindings check
 web/server.py             FastAPI + WebSocket; owns the Game; registers bots (incl. runs/*/best.pt)
@@ -71,6 +72,7 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python -m catan_rl.ppo --name <run> [flags]     # train; flags mirror ppo.Config fields
 .venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--replays N]
 .venv/bin/python -m catan_rl.strategy <run> [--games 300]   # -> plots/<run>_strategy.png, cached in runs/<run>/strategy.csv
+.venv/bin/python -m catan_rl.generalization <run> ...           # -> plots/generalization.png
 .venv/bin/python -m catan_rl.plot_runs <run> <run> ...  # eval curves side by side -> plots/<run>_vs_<run>.png
 ```
 
@@ -132,6 +134,8 @@ cd engine && cargo bench -p catan-core                    # engine throughput
   inference, and about 7.5k/s for a 3×512 MLP before league overhead. The network is the bottleneck; the
   engine does 13M raw steps/s per core. Diagnostic run `runs/diag` (2×256, 6M steps, ~15 min) won 44%
   against 3 heuristic bots.
+- The flat MLP does not generalise across boards: run `diag` wins 43% vs heuristic bots on the board
+  it trained on and 0.8% on random boards. Board-structured models (GNN/transformer) are the planned fix.
 - **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
   `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
 

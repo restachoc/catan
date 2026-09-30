@@ -75,7 +75,7 @@ def main() -> None:
         for yv, xv in sorted(ends):
             yl = max(yv, placed[-1] + gap) if placed else yv
             placed.append(yl)
-            if abs(yl - yv) > 1e-9:
+            if abs(yl - yv) > 1e-9 or x_lab - xv > 0.08 * x_lab:
                 ax.plot([xv, x_lab], [yv, yl], color=INK2, linewidth=0.8)
             ax.text(x_lab, yl, f" {yv:.1f}{'%' if unit == '%' else ''}", va="center", color=INK, fontsize=10,
                     fontweight="bold")
