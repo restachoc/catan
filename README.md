@@ -5,7 +5,7 @@ A fast Catan rules engine in Rust, a browser UI to play against bots, and PPO se
 ```
 engine/catan-core   rules engine (Rust): bitboard state, flat 253-action space, observations, bots
 engine/catan-py     PyO3 bindings: Game (UI) and parallel VecEnv (training)
-python/catan_rl     PPO trainer, evaluation, compute benchmark, smoke test
+python/catan_rl     PPO + AlphaZero trainers, evaluation, analysis charts, benchmarks
 web/                FastAPI server + canvas UI (play and replays)
 ```
 
@@ -32,9 +32,18 @@ Deep link: `/?replay=<name>&step=<n>`. Keys: space/r rolls, Enter ends the turn,
 ## Train
 
 ```bash
-.venv/bin/python -m catan_rl.ppo --name v1                     # defaults: 512 envs, 3x512 MLP, 1e9 steps
-.venv/bin/python -m catan_rl.ppo --name v1 --resume runs/v1/latest.pt
-.venv/bin/python -m catan_rl.evaluate runs/v1/best.pt --games 2000 --replays 5
+nice -n 10 .venv/bin/python -m catan_rl.ppo --name v1          # PPO; defaults: 512 envs, 3x512 MLP, 1e9 steps
+nice -n 10 .venv/bin/python -m catan_rl.ppo --name v1 --resume runs/v1/latest.pt
+nice -n 10 .venv/bin/python -m catan_rl.az --name az1          # AlphaZero-style MCTS self-play
+.venv/bin/python -m catan_rl.evaluate runs/v1/best.pt --games 2000 [--random-board] [--replays 5]
+```
+
+Analysis (charts go to `plots/`):
+
+```bash
+.venv/bin/python -m catan_rl.plot_runs <run> <run> ...         # training curves side by side
+.venv/bin/python -m catan_rl.generalization <run> ...          # fixed vs random boards
+.venv/bin/python -m catan_rl.strategy <run>                    # strategy mix over training
 ```
 
 Metrics go to `runs/<name>/metrics.csv`. `eval_wr_heuristic` is the win rate with the policy in one seat
