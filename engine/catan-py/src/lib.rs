@@ -1,6 +1,6 @@
 //! Python bindings: a single `Game` for the UI and a batched, multi-threaded `VecEnv` for RL.
 
-use numpy::{PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1};
+use numpy::{PyArray1, PyArray2, PyArray3, PyArrayMethods, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -8,6 +8,7 @@ use rayon::prelude::*;
 use catan_core::actions::{action_name, mask_iter};
 use catan_core::bots::{heuristic_action, random_action};
 use catan_core::rng::Rng;
+use catan_core::stats::{player_stats, N_STATS, STAT_NAMES};
 use catan_core::view::{board_view, state_view};
 use catan_core::{write_obs, Config, State, N_ACTIONS, OBS_SIZE};
 
@@ -147,6 +148,8 @@ struct Slot {
     bot_rng: Rng,
     seats: [u8; 4],
     steps: u32,
+    /// Per-seat end-of-game statistics of the most recently finished game.
+    last_stats: [[f32; N_STATS]; 4],
 }
 
 /// Batched environments stepped in parallel. Seats marked as bots are played inside Rust, so
@@ -205,6 +208,7 @@ impl VecEnv {
                 bot_rng: Rng::new(seed + i as u64),
                 seats: [SEAT_EXTERNAL; 4],
                 steps: 0,
+                last_stats: [[0.0; N_STATS]; 4],
             })
             .collect();
         Ok(VecEnv { slots, cfg, next_seed: seed + num_envs as u64 })
@@ -342,6 +346,9 @@ impl VecEnv {
                         for (p, v) in fv.iter_mut().enumerate() {
                             *v = if p < slot.state.n() { slot.state.vp(p) as i64 } else { 0 };
                         }
+                        for p in 0..slot.state.n() {
+                            slot.last_stats[p] = player_stats(&slot.state, p);
+                        }
                         Self::reset_slot(slot, cfg, base + i as u64);
                         Self::advance_bots(slot);
                     } else {
@@ -353,6 +360,14 @@ impl VecEnv {
                 });
         });
         Ok(())
+    }
+
+    /// End-of-game statistics [N, 4, len(STAT_NAMES)] of each env's most recently finished game
+    /// (read right after a step that reported `done`).
+    fn last_game_stats<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray3<f32>> {
+        let n = self.slots.len();
+        let flat: Vec<f32> = self.slots.iter().flat_map(|s| s.last_stats.iter().flatten().copied()).collect();
+        PyArray1::from_vec(py, flat).reshape([n, 4, N_STATS]).unwrap()
     }
 
     /// Victory points (including hidden cards) per seat for one env.
@@ -408,5 +423,6 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bot_tournament, m)?)?;
     m.add("OBS_SIZE", OBS_SIZE)?;
     m.add("N_ACTIONS", N_ACTIONS)?;
+    m.add("STAT_NAMES", STAT_NAMES.to_vec())?;
     Ok(())
 }

@@ -6,6 +6,7 @@ pub mod bots;
 pub mod obs;
 pub mod rng;
 pub mod state;
+pub mod stats;
 pub mod topology;
 pub mod view;
 

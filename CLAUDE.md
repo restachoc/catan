@@ -35,6 +35,7 @@ engine/                   Cargo workspace (release profile: lto=fat, codegen-uni
     bots.rs               random_action, heuristic_action (greedy rules; see the doc comments there)
     view.rs               serde views for the UI (board_view, state_view with hidden info per viewer)
     rng.rs                wyrand PRNG (deterministic)
+    stats.rs              end-of-game per-player stats (STAT_NAMES) for strategy analysis
   catan-core/tests/rules.rs   rule unit tests, invariant stress tests, determinism/replay tests
   catan-core/benches/playout.rs   throughput benchmark (std::time; harness = false)
   catan-py/src/lib.rs     PyO3 module `catan_rl._engine`: Game, VecEnv, action_names, bot_tournament
@@ -43,6 +44,8 @@ python/catan_rl/
   model.py                PolicyNet (MLP + LayerNorm, masked policy head, value head), save/load, PolicyBot
   ppo.py                  trainer (Config dataclass = CLI flags)
   evaluate.py             evaluate() vs bots or checkpoints; replay export
+  strategy.py             strategy mix of a run's snapshots in self-play (spending-based classification)
+  plot_runs.py            eval curves of several runs side by side
   bench_compute.py        rollout/train throughput and time projections
   smoke.py                end-to-end bindings check
 web/server.py             FastAPI + WebSocket; owns the Game; registers bots (incl. runs/*/best.pt)
@@ -65,6 +68,7 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/uvicorn web.server:app --port 8765              # UI at http://localhost:8765
 .venv/bin/python -m catan_rl.ppo --name <run> [flags]     # train; flags mirror ppo.Config fields
 .venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--replays N]
+.venv/bin/python -m catan_rl.strategy <run> [--games 300]   # -> plots/<run>_strategy.png, cached in runs/<run>/strategy.csv
 .venv/bin/python -m catan_rl.plot_runs <run> <run> ...  # eval curves side by side -> plots/<run>_vs_<run>.png
 ```
 
@@ -136,6 +140,9 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 - **`pkill -f` / `pgrep -f` self-match:** patterns like `"uvicorn web.server:app"` or `"catan_rl.ppo"` also
   match the shell running the command, which kills it or makes `until ! pgrep` loops never end. Use
   background task IDs or a PID file instead.
+- **Don't run two heavy jobs at once** (training, evaluation, strategy analysis). Each one uses every
+  core (torch threads + rayon); together they oversubscribe the 14 cores and each slows 5x+. Run them
+  one after another.
 - The web server registers bots only at import time, so restart it after a new `best.pt` appears.
 - pyo3 0.29: `py.detach` releases the GIL (formerly `allow_threads`). `Game` uses
   `#[pyclass(skip_from_py_object)]` to silence the Clone/FromPyObject deprecation.
@@ -146,6 +153,9 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 
 ## Verifying changes
 
+- Strategy classification (`strategy.py`): a player's label comes from where their resource cards went
+  after setup (roads 2, extra settlements 4, cities 5, dev cards 3). Fixed thresholds on raw counts
+  don't work, because even near-random play builds ~15 roads and buys ~5 dev cards.
 - Rules or engine: `cargo test --release` plus the `--ignored` stress test. Add a targeted test in
   `tests/rules.rs` for any new rule.
 - Performance: `cargo bench` before and after. Current numbers are 13M steps/s per core (random bot) and

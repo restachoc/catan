@@ -84,6 +84,10 @@ pub struct State {
     pub discard_need: [u8; MAX_P],
     pub discarder: u8,
     pub last_roll: [u8; 2],
+    /// Bookkeeping for strategy analysis (not part of the observation).
+    pub dev_bought: [u8; MAX_P],
+    /// Pips per resource of each player's buildings right after setup.
+    pub opening_pips: [[u8; 5]; MAX_P],
     pub winner: i8,
 }
 
@@ -131,6 +135,8 @@ impl State {
             discard_need: [0; MAX_P],
             discarder: 0,
             last_roll: [0, 0],
+            dev_bought: [0; MAX_P],
+            opening_pips: [[0; 5]; MAX_P],
             winner: -1,
         }
     }
@@ -217,6 +223,21 @@ impl State {
             }
         }
         r
+    }
+
+    /// Pips per resource produced by `p`'s buildings (cities count twice; robber ignored).
+    pub fn production_pips(&self, p: usize) -> [u8; 5] {
+        let mut out = [0u8; 5];
+        for h in 0..N_HEX {
+            let r = self.board.hex_res[h];
+            if r == DESERT {
+                continue;
+            }
+            let vm = TOPO.hex_vmask[h];
+            let c = (self.settlements[p] & vm).count_ones() + 2 * (self.cities[p] & vm).count_ones();
+            out[r as usize] += (c * pips(self.board.hex_num[h]) as u32) as u8;
+        }
+        out
     }
 
     fn road_vertices(&self, p: usize) -> u64 {
@@ -394,6 +415,7 @@ impl State {
             a if a < BUY_DEV => self.build_road(p, a - ROAD),
             BUY_DEV => {
                 self.pay(p, &COST_DEV);
+                self.dev_bought[p] += 1;
                 self.dev_deck_len -= 1;
                 let c = self.dev_deck[self.dev_deck_len as usize] as usize;
                 self.dev_hand[p][c] += 1;
@@ -527,6 +549,9 @@ impl State {
                 self.road_len[p] = self.longest_road_of(p);
                 self.setup_step += 1;
                 if self.setup_step == 2 * self.cfg.n_players {
+                    for q in 0..self.n() {
+                        self.opening_pips[q] = self.production_pips(q);
+                    }
                     self.cur = 0;
                     self.phase = Phase::Roll;
                 } else {

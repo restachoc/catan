@@ -61,16 +61,28 @@ def main() -> None:
         ax.tick_params(length=0)
         ax.axhline(ref, color=INK2, linewidth=1, linestyle=(0, (4, 3)))
         ax.text(0, ref, f" {ref_label}", color=INK2, fontsize=9, va="bottom")
+        ends = []
         for i, (d, label) in enumerate(zip(data, labels)):
             x, y = d[0], d[col]
             ax.plot(x, y, color=SERIES[i], linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=label)
             ax.plot(x[-1], y[-1], "o", color=SERIES[i], markersize=8, markeredgecolor=SURFACE, markeredgewidth=2)
-            ax.annotate(f"{y[-1]:.1f}{'%' if unit == '%' else ''}", (x[-1], y[-1]), xytext=(8, 0),
-                        textcoords="offset points", va="center", color=INK, fontsize=10, fontweight="bold")
+            ends.append((y[-1], x[-1]))
+        # End-value labels, spread vertically so converging lines don't collide; leader lines keep the link.
+        top = 60 if unit == "%" else 10.5
+        gap = 0.06 * top
+        placed: list[float] = []
+        x_lab = max(x for _, x in ends) + 0.03 * max(max(d[0]) for d in data)
+        for yv, xv in sorted(ends):
+            yl = max(yv, placed[-1] + gap) if placed else yv
+            placed.append(yl)
+            if abs(yl - yv) > 1e-9:
+                ax.plot([xv, x_lab], [yv, yl], color=INK2, linewidth=0.8)
+            ax.text(x_lab, yl, f" {yv:.1f}{'%' if unit == '%' else ''}", va="center", color=INK, fontsize=10,
+                    fontweight="bold")
         ax.set_title(title, loc="left", color=INK, fontsize=13, fontweight="bold", pad=12)
         ax.set_xlabel("Training steps (millions)")
         ax.set_ylim(0, 60 if unit == "%" else 10.5)
-        ax.set_xlim(0, max(max(d[0]) for d in data) * 1.08)
+        ax.set_xlim(0, max(max(d[0]) for d in data) * 1.12)
     axes[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(0, 0.93), labelcolor=INK)
     fig.text(0.01, 0.01, "Each point: 400 evaluation games, policy in one seat, 3 heuristic bots in the others.",
              color=INK2, fontsize=9)
