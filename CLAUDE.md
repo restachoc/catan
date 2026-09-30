@@ -74,6 +74,7 @@ python/catan_rl/
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
   bench_compute.py        rollout/train throughput and time projections
   smoke.py                end-to-end bindings check
+benchmarks/arch_speed.py  speed of candidate board networks (GNN, transformer, hybrid) vs the MLP; results/ gitignored
 web/server.py             FastAPI + WebSocket; owns the Game; registers bots (incl. runs/*/best.pt)
 web/static/               index.html, style.css, board.js (canvas renderer), ui.js (session + panels + replays)
 pyproject.toml            maturin config (python-source = python, module = catan_rl._engine)
@@ -92,6 +93,7 @@ cd engine && cargo test -p catan-core --release -- --ignored   # 100k-game invar
 cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python -m catan_rl.smoke                        # bindings end to end
 .venv/bin/python -m catan_rl.bench_compute                # NN throughput and training-time projections
+.venv/bin/python benchmarks/arch_speed.py [--quick] [--csv benchmarks/results/arch_speed.csv]   # niced, cores-2 threads
 .venv/bin/uvicorn web.server:app --port 8765              # UI at http://localhost:8765
 
 # Long runs: always under nice, so interactive jobs get priority (see "CPU sharing")
@@ -213,6 +215,10 @@ The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
   `torch.set_num_threads(4)`. That combination slowed a running training by only ~10%.
 
 ## Gotchas
+
+- **Benchmarks can freeze the desktop:** a transformer over ~146 tokens at batch 4096 materialises several GB of
+  attention and swaps (RAM is 15 GB). Train in micro-batches, leave cores free, and run under `nice`
+  (`arch_speed.py` does all three by default).
 
 - **Stale extension:** after editing Rust, Python keeps importing the old `_engine` until you rerun
   `maturin develop --release`. There is no error, just old behaviour. Rebuilding while a training runs is
