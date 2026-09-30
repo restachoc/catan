@@ -9,7 +9,7 @@ requires-python = ">=3.10"
 dependencies = ["numpy", "fastapi", "uvicorn[standard]"]
 
 [project.optional-dependencies]
-train = ["torch"]
+train = ["torch", "matplotlib"]
 
 [tool.maturin]
 manifest-path = "engine/catan-py/Cargo.toml"

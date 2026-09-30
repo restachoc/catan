@@ -65,6 +65,7 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/uvicorn web.server:app --port 8765              # UI at http://localhost:8765
 .venv/bin/python -m catan_rl.ppo --name <run> [flags]     # train; flags mirror ppo.Config fields
 .venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--replays N]
+.venv/bin/python -m catan_rl.plot_runs <run> <run> ...  # eval curves side by side -> runs/compare.png
 ```
 
 ## Architecture invariants (don't break these)

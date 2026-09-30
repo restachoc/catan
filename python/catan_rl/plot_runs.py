@@ -1,0 +1,82 @@
+"""Plot evaluation curves of training runs side by side.
+
+    python -m catan_rl.plot_runs diag selfplay [--labels "Mixed + VP" "Self-play"] [--out runs/compare.png]
+
+Two panels sharing the x-axis (training steps): win rate vs 3 heuristic bots, and average final VP.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+# Reference categorical palette (fixed order, light mode).
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
+
+
+def load(run: str) -> tuple[list[float], list[float], list[float]]:
+    steps, wr, vp = [], [], []
+    with (Path("runs") / run / "metrics.csv").open() as f:
+        for row in csv.DictReader(f):
+            if row["eval_wr_heuristic"]:
+                steps.append(int(row["steps"]) / 1e6)
+                wr.append(float(row["eval_wr_heuristic"]) * 100)
+                vp.append(float(row["eval_vp"]))
+    return steps, wr, vp
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("runs", nargs="+")
+    ap.add_argument("--labels", nargs="+")
+    ap.add_argument("--out", default="runs/compare.png")
+    args = ap.parse_args()
+    labels = args.labels or args.runs
+
+    plt.rcParams.update({
+        "font.family": "sans-serif", "font.size": 11, "text.color": INK, "axes.labelcolor": INK2,
+        "xtick.color": INK2, "ytick.color": INK2, "axes.edgecolor": GRID,
+    })
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor=SURFACE)
+    panels = [
+        (axes[0], 1, "Win rate vs 3 heuristic bots", "%", 25, "chance (25%)"),
+        (axes[1], 2, "Average final VP vs 3 heuristic bots", "VP", 10, "win threshold (10 VP)"),
+    ]
+    data = [load(r) for r in args.runs]
+    for ax, col, title, unit, ref, ref_label in panels:
+        ax.set_facecolor(SURFACE)
+        ax.grid(axis="y", color=GRID, linewidth=1)
+        ax.set_axisbelow(True)
+        for side in ("top", "right", "left"):
+            ax.spines[side].set_visible(False)
+        ax.tick_params(length=0)
+        ax.axhline(ref, color=INK2, linewidth=1, linestyle=(0, (4, 3)))
+        ax.text(0, ref, f" {ref_label}", color=INK2, fontsize=9, va="bottom")
+        for i, (d, label) in enumerate(zip(data, labels)):
+            x, y = d[0], d[col]
+            ax.plot(x, y, color=SERIES[i], linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=label)
+            ax.plot(x[-1], y[-1], "o", color=SERIES[i], markersize=8, markeredgecolor=SURFACE, markeredgewidth=2)
+            ax.annotate(f"{y[-1]:.1f}{'%' if unit == '%' else ''}", (x[-1], y[-1]), xytext=(8, 0),
+                        textcoords="offset points", va="center", color=INK, fontsize=10, fontweight="bold")
+        ax.set_title(title, loc="left", color=INK, fontsize=13, fontweight="bold", pad=12)
+        ax.set_xlabel("Training steps (millions)")
+        ax.set_ylim(0, 60 if unit == "%" else 10.5)
+        ax.set_xlim(0, max(max(d[0]) for d in data) * 1.08)
+    axes[0].legend(frameon=False, loc="upper left", bbox_to_anchor=(0, 0.93), labelcolor=INK)
+    fig.text(0.01, 0.01, "Each point: 400 evaluation games, policy in one seat, 3 heuristic bots in the others.",
+             color=INK2, fontsize=9)
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(args.out, dpi=150, facecolor=SURFACE)
+    print(f"saved {args.out}")
+
+
+if __name__ == "__main__":
+    main()
