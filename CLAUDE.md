@@ -26,6 +26,9 @@ that isn't linked from this file or the README, warn the owner.** Either link it
 - Charts go to `plots/` (one file per comparison, clean names). Look at every rendered chart before
   reporting it (label collisions, colours that mean different things in different panels).
 - Ask before starting multi-hour runs unless the owner asked for one.
+- Don't install tools or system software on the owner's machine without asking; they prefer to do it themselves.
+- The owner uses this machine interactively. Heavy jobs make the desktop stutter even when niced (memory
+  bandwidth), so keep benchmarks and side jobs to about half the cores.
 
 ## Project goal
 
@@ -93,7 +96,7 @@ cd engine && cargo test -p catan-core --release -- --ignored   # 100k-game invar
 cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python -m catan_rl.smoke                        # bindings end to end
 .venv/bin/python -m catan_rl.bench_compute                # NN throughput and training-time projections
-.venv/bin/python benchmarks/arch_speed.py [--quick] [--csv benchmarks/results/arch_speed.csv]   # niced, cores-2 threads
+.venv/bin/python benchmarks/arch_speed.py [--quick] [--csv benchmarks/results/arch_speed.csv]   # niced, half the cores
 .venv/bin/uvicorn web.server:app --port 8765              # UI at http://localhost:8765
 
 # Long runs: always under nice, so interactive jobs get priority (see "CPU sharing")
@@ -108,6 +111,15 @@ nice -n 10 .venv/bin/python -m catan_rl.az --name <run> [flags]    # flags mirro
 
 The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
 `--num-envs 256 --rollout 128 --total-steps 6e6 --hidden 256 --layers 2 --snapshot-every 10 --eval-every 10 --eval-games 400`.
+
+## Repository and machines
+
+- Remote: private GitHub repo `restachoc/catan` (`origin`, branch `master`). Push over HTTPS; the `gh` login
+  (account `restachoc`) is the credential helper, set in this repo's local git config only. SSH won't work:
+  this machine's SSH key belongs to a different GitHub account. Push when the owner asks.
+- This machine: 14 cores, 15 GB RAM, AVX2 only, no GPU. The owner has a separate GPU machine that pulls from
+  `origin`. Setup there: rustup, a venv, `maturin develop --release -E train`, then the smoke test.
+  `runs/`, `replays/` and `plots/` are gitignored, so checkpoints don't travel with the repo.
 
 ## Architecture invariants (don't break these)
 
@@ -161,7 +173,11 @@ The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
   probability per seat, relative to the player to move).
 - **Known limitation:** the MLP has no notion of board structure (no weight sharing between vertices/hexes), so
   it memorises one layout and does not transfer to random boards. A GNN/transformer over hexes, vertices and
-  edges with per-location policy heads is the planned replacement.
+  edges with per-location policy heads is the planned replacement (prototypes in `benchmarks/arch_speed.py`).
+- **Board networks are too slow for this CPU.** They cost 20–30× the MLP's FLOPs per sample (145 nodes × d²
+  per layer). Estimated PPO rate: MLP 2×256 ~18k samples/s (network only), GNN d64 L4 ~250, transformer and
+  hybrid d64 L4 ~60–75, d128 variants 17–60. A 6M-step diagnostic would take ~7 h with the smallest GNN. Train
+  them on the GPU machine; there the gap should shrink to a few × and the engine + Python loop become the limit.
 - **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
   `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
 

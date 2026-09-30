@@ -2,7 +2,7 @@
 
     .venv/bin/python benchmarks/arch_speed.py [--quick] [--device cuda] [--threads N] [--csv benchmarks/results/arch_speed.csv]
 
-Runs niced with two cores left free by default, and trains in micro-batches (gradient accumulation over the
+Runs niced on half the cores by default, and trains in micro-batches (gradient accumulation over the
 PPO minibatch) so the transformer's attention matrices stay small; a full 4096 batch needs several GB.
 
 Prototypes (speed only, untrained) over the real board graph from `Game.board_json()`:
@@ -378,13 +378,13 @@ def main():
     p.add_argument("--epochs", type=int, default=4, help="PPO epochs, for the end-to-end estimate")
     p.add_argument("--min-time", type=float, default=2.0, help="seconds per measurement")
     p.add_argument("--device", default="cpu", help="cpu or cuda")
-    p.add_argument("--threads", type=int, default=0, help="torch threads (default: cores - 2)")
+    p.add_argument("--threads", type=int, default=0, help="torch threads (default: half the cores)")
     p.add_argument("--nice", type=int, default=10, help="niceness increment for this process")
     p.add_argument("--quick", action="store_true", help="only the smallest size of each family")
     p.add_argument("--csv", type=Path, default=None)
     args = p.parse_args()
     os.nice(args.nice)
-    torch.set_num_threads(args.threads or max(1, (os.cpu_count() or 2) - 2))
+    torch.set_num_threads(args.threads or max(1, (os.cpu_count() or 2) // 2))
     torch.manual_seed(0)
 
     topo = Topology()

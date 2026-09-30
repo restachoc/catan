@@ -5,18 +5,26 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
+- **Board-structured network (chosen direction).** Options scored in the ideation phase: GNN over hexes,
+  vertices and edges with per-location policy heads 9/10 (recommended start), GNN + attention to a few
+  global/seat tokens 8.5/10 (upgrade path), full transformer with graph-distance bias 7.5/10 (cost),
+  hex-grid CNN 6/10, per-action scoring from hand-made features 6.5/10, MLP + symmetry augmentation 3/10
+  (worth adding on top of the GNN). All three graph prototypes are in `benchmarks/arch_speed.py`.
+- **Next step:** the owner runs `benchmarks/arch_speed.py --device cuda --train-chunk 4096` on the GPU machine
+  (clone of `restachoc/catan`). CPU results are in CLAUDE.md "Networks": too slow here for anything but
+  overnight runs of the smallest GNN. Then pick a size and move the chosen network into `model.py`.
+- First experiment once built: run 4's recipe (6M steps, random boards) with the graph network, compared with
+  run 1 on the fixed board.
 - Nothing is running. (The web server may still be up on port 8765 from an earlier session; restart it
   to pick up new `best.pt` files.)
 
 ## Open decisions (waiting on the owner)
 
-- **Next direction after the diagnostics.** Candidates, roughly in the order discussed:
-  1. **Board-structured network** (GNN or transformer over hexes/vertices/edges, per-location policy
-     heads). Motivated by the generalisation failure (runs 1 and 4) and by AlphaZero's value memorisation.
-  2. **AlphaZero fixes** (see EXPERIMENTS.md "AlphaZero"): position subsampling, mixed z/q value target,
-     value-head regularisation, held-out value metric. Then a second AZ run.
-  3. **Pure self-play with VP shaping**, to separate the opponent effect from the reward effect in run 2.
-  4. **Continue run 2** with `--resume runs/selfplay/latest.pt --total-steps 30e6` to test whether it's
+- **Other directions, parked while the network is built:**
+  1. **AlphaZero fixes** (see EXPERIMENTS.md "AlphaZero"): position subsampling, mixed z/q value target,
+     value-head regularisation, held-out value metric. Then a second AZ run (ideally with the new network).
+  2. **Pure self-play with VP shaping**, to separate the opponent effect from the reward effect in run 2.
+  3. **Continue run 2** with `--resume runs/selfplay/latest.pt --total-steps 30e6` to test whether it's
      stuck or just slow (its learning rate had decayed to ~0).
 - **Full v1 PPO run** (3×512, 1B steps, ~2 days on this CPU; faster on the owner's GPU machine): not
   started. The owner wanted to decide after the experiments.
