@@ -3,7 +3,7 @@
 Training runs so far, what they showed, and the lessons that still hold. Curated, not a log: when a
 lesson is overturned, rewrite it. Linked from [CLAUDE.md](../CLAUDE.md).
 
-All runs: 4 players, 2×256 MLP, evaluated with the policy in one seat vs 3 heuristic bots (chance = 25%).
+All runs: 4 players, 2×256 MLP unless noted, evaluated with the policy in one seat vs 3 heuristic bots (chance = 25%).
 Charts: `plots/all_runs.png` (training curves), `plots/generalization.png` (fixed vs random boards),
 `plots/<run>_strategy.png` (strategy mix over training).
 
@@ -17,6 +17,7 @@ Charts: `plots/all_runs.png` (training curves), `plots/generalization.png` (fixe
 | `selfplay` | Run 2 | PPO, pure self-play, win/loss only (`--frac-heuristic 0 --frac-selfplay 1 --vp-coef 0`) | 1.5% / 4.7 | 0.5% / 3.4 |
 | `selfplay-randboard` | Run 3 | Run 2 + `--random-board` | 1.2% / 3.8 | 1.6% / 4.1 |
 | `diag-randboard` | Run 4 | Run 1 + `--random-board` | 0.1% / 3.4 | 0.5% / 3.7 |
+| `gnn-randboard` | Run 5 (GNN) | Run 4 with `--arch gnn --hidden 64 --layers 4` (0.30M params), trained on a Colab T4 with `--amp` | 11.2% / 6.4 | **8.7% / 5.7** |
 | `az1` | AlphaZero az1 | AlphaZero, 64 sims, 256 games, 3M samples (~1.6 h), pure self-play, win/loss | 0.0% / 3.1 (raw policy) | 0.1% / 2.8 |
 
 az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, no upward trend.
@@ -39,6 +40,14 @@ az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, 
   0.5% and ~3.5 VP. Run 3 (self-play on random boards) is similarly weak.
 - Diagnosis: the MLP has separate weights for every vertex/hex, so it memorises layouts. This motivates a
   board-structured network (GNN/transformer over hexes, vertices and edges with shared weights).
+- The GNN fixes most of it (run 5 vs run 4, same recipe): on random boards 8.7% vs 0.5% win rate and 5.7 vs
+  3.7 VP. It also transfers to the beginner board it never trained on (11.2%, 6.4 VP). Two things changed
+  besides the network: GPU instead of CPU and fp16 autocast; neither should change what is learned.
+- Run 5 is still well below chance (25%) and below run 1's 43% on its single board. VP rose fast to ~5 by 2M
+  steps, then slowly to ~5.4; the learning rate had decayed by then, so the plateau is unproven (chart:
+  `plots/gnn_vs_mlp_randboard.png`). Next: continue it with `--resume`, or a longer/larger run.
+- Throughput on the T4: ~3.3k samples/s while the league pool is empty, ~2.0–2.2k/s once league snapshots
+  play (each adds its own small inference batches). 6M steps took ~45 min.
 
 **Strategies (from `strategy.py`)**
 - Classification by where resource cards were spent after setup (road 2, extra settlement 4, city 5,

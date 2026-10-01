@@ -14,12 +14,13 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   samples/s on 6 CPU threads). Transformer and hybrid remain benchmark-only.
 - **GPU benchmark done** (free Colab T4, 2026-10-01; numbers in CLAUDE.md "Networks"). The GNN d64 L4 is the
   only board network fast enough to iterate with (~3.3k samples/s compiled). Proposed size: d64 L4, owner to confirm.
-- GPU training works end to end on Colab (`scripts/colab.sh`, see CLAUDE.md "Remote GPU runs"), tested with a
-  200k-step smoke run. Ready for the first real GNN experiment below.
-- First experiment then: run 4's recipe (6M steps, random boards) with `--arch gnn --hidden 64 --layers 4`
-  on Colab, compared with run 1 on the fixed board.
-- Nothing is running. (The web server may still be up on port 8765 from an earlier session; restart it
-  to pick up new `best.pt` files.)
+- GPU training works end to end on Colab (`scripts/colab.sh`, see CLAUDE.md "Remote GPU runs").
+- **Run 5 (`gnn-randboard`) done**: GNN on random boards, 8.7% / 5.7 VP vs run 4's 0.5% / 3.7 (EXPERIMENTS.md).
+  Next options for the owner: continue it (`--resume runs/gnn-randboard/latest.pt --total-steps 20e6`, needs
+  the checkpoint uploaded or the run continued in one Colab session), a bigger GNN (d128), or the league
+  slowdown (batch all league opponents into one forward pass).
+- The colab-mcp tool call times out after 30 min of silence (the cell keeps running). Long runs are tracked by
+  watching `~/Downloads/<run>.zip` instead. Raising the per-server MCP `timeout` would avoid it (owner's config).
 
 ## Open decisions (waiting on the owner)
 
