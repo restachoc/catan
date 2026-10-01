@@ -10,11 +10,13 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   global/seat tokens 8.5/10 (upgrade path), full transformer with graph-distance bias 7.5/10 (cost),
   hex-grid CNN 6/10, per-action scoring from hand-made features 6.5/10, MLP + symmetry augmentation 3/10
   (worth adding on top of the GNN). All three graph prototypes are in `benchmarks/arch_speed.py`.
+- **The GNN is in the trainer** (`GraphPolicyNet`, `ppo --arch gnn`), smoke-tested only (20k steps, ~220
+  samples/s on 6 CPU threads). Transformer and hybrid remain benchmark-only.
 - **Next step:** the owner runs `benchmarks/arch_speed.py --device cuda --train-chunk 4096` on the GPU machine
-  (clone of `restachoc/catan`). CPU results are in CLAUDE.md "Networks": too slow here for anything but
-  overnight runs of the smallest GNN. Then pick a size and move the chosen network into `model.py`.
-- First experiment once built: run 4's recipe (6M steps, random boards) with the graph network, compared with
-  run 1 on the fixed board.
+  (clone of `restachoc/catan`) and picks a size. `ppo.py` has no `--device` yet; add it (net on GPU for
+  updates, and probably for rollout inference too) before training there.
+- First experiment then: run 4's recipe (6M steps, random boards) with `--arch gnn`, compared with run 1 on the
+  fixed board.
 - Nothing is running. (The web server may still be up on port 8765 from an earlier session; restart it
   to pick up new `best.pt` files.)
 

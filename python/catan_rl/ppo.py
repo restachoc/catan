@@ -32,7 +32,7 @@ import torch
 
 from catan_rl import N_ACTIONS, OBS_SIZE, VecEnv
 from catan_rl.evaluate import evaluate
-from catan_rl.model import PolicyNet, load, save
+from catan_rl.model import PolicyNet, load, make_policy, save
 
 RUST_BOT = -1
 LEARNER = 0
@@ -44,7 +44,8 @@ class Config:
     seed: int = 0
     n_players: int = 4
     random_board: bool = False
-    # model
+    # model: "mlp" (hidden = width) or "gnn" (hidden = node embedding size, layers = message-passing rounds)
+    arch: str = "mlp"
     hidden: int = 512
     layers: int = 3
     # rollout
@@ -158,7 +159,7 @@ class Trainer:
         self.pool_dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "config.json").write_text(json.dumps(dataclasses.asdict(cfg), indent=2))
 
-        self.net = PolicyNet(cfg.hidden, cfg.layers)
+        self.net = make_policy(cfg.arch, cfg.hidden, cfg.layers)
         self.opt = torch.optim.Adam(self.net.parameters(), lr=cfg.lr, eps=1e-5)
         self.steps = 0
         self.iter = 0

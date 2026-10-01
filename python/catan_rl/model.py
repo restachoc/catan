@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from catan_rl import N_ACTIONS, OBS_SIZE
+from catan_rl import ACTIONS, N_ACTIONS, OBS_SIZE
+from catan_rl import graph as G
 
 NEG_INF = -1e9
 
@@ -50,6 +51,64 @@ class PolicyNet(nn.Module):
             a = torch.distributions.Categorical(logits=logits).sample()
         logp = torch.log_softmax(logits, -1).gather(-1, a[:, None]).squeeze(-1)
         return a.numpy(), logp.numpy(), v.numpy()
+
+
+class GraphPolicyNet(nn.Module):
+    """Board-structured PPO network with the same interface as PolicyNet.
+
+    Hexes, vertices and edges are nodes of a typed GNN (`graph.GNNLayer`) with one global token for the
+    players, own hand and phase. Each node also sees whether its own actions are legal (from the mask).
+    Vertex embeddings score settlements and cities, edge embeddings roads, hex embeddings the robber,
+    and the global token the remaining actions and the value.
+    """
+
+    def __init__(self, hidden: int = 64, layers: int = 4):
+        super().__init__()
+        self.cfg = {"kind": "gnn", "hidden": hidden, "layers": layers}
+        d = hidden
+        topo = G.topology()
+        self.register_buffer("vert_static", topo.vert_static, persistent=False)
+        self.register_buffer("edge_static", topo.edge_static, persistent=False)
+        self.register_buffer("perm", G.action_perm(), persistent=False)
+        self.register_buffer("glob_act", G.global_actions(), persistent=False)
+        self.adj = G.TopoBuffers(topo)
+        self.enc_h = G.dense(G.HEX_F + 1, d)
+        self.enc_v = G.dense(G.VERT_F + 2 + 2, d)
+        self.enc_e = G.dense(G.EDGE_F + 1 + 1, d)
+        self.enc_g = G.dense(G.GLOBAL_F + G.N_GLOBAL_ACT, d)
+        self.layers = nn.ModuleList(G.GNNLayer(d) for _ in range(layers))
+        self.pi_v, self.pi_e, self.pi_h = nn.Linear(d, 2), nn.Linear(d, 1), nn.Linear(d, 1)
+        self.pi_g = nn.Linear(d, G.N_GLOBAL_ACT)
+        self.v = nn.Sequential(G.dense(d, d), nn.Linear(d, 1))
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+        for head in (self.pi_v, self.pi_e, self.pi_h, self.pi_g):
+            nn.init.orthogonal_(head.weight, gain=0.01)
+        nn.init.orthogonal_(self.v[-1].weight, gain=1.0)
+
+    def forward(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        B = obs.shape[0]
+        h, v, e, g = G.split_obs(obs)
+        m = mask.to(obs.dtype)
+        s, c, r, rb = ACTIONS["SETTLE"], ACTIONS["CITY"], ACTIONS["ROAD"], ACTIONS["MOVE_ROBBER"]
+        h = torch.cat([h, m[:, rb:rb + G.N_HEX, None]], -1)
+        v = torch.cat([v, m[:, s:s + G.N_VERT, None], m[:, c:c + G.N_VERT, None],
+                       self.vert_static.expand(B, -1, -1)], -1)
+        e = torch.cat([e, m[:, r:r + G.N_EDGE, None], self.edge_static.expand(B, -1, -1)], -1)
+        g = self.enc_g(torch.cat([g, m[:, self.glob_act]], -1))
+        x = {k: enc(t).transpose(0, 1).contiguous()
+             for k, enc, t in (("h", self.enc_h, h), ("v", self.enc_v, v), ("e", self.enc_e, e))}
+        for layer in self.layers:
+            x, g = layer(x, g, self.adj)
+        pv = self.pi_v(x["v"])
+        flat = torch.cat([pv[..., 0], pv[..., 1], self.pi_e(x["e"])[..., 0], self.pi_h(x["h"])[..., 0]], 0).T
+        logits = torch.cat([flat, self.pi_g(g)], -1)[:, self.perm]
+        return logits.masked_fill(~mask, NEG_INF), self.v(g).squeeze(-1)
+
+    act = PolicyNet.act
 
 
 class AZNet(nn.Module):
@@ -98,10 +157,17 @@ def save(net: nn.Module, path: Path, **meta) -> None:
     tmp.replace(path)
 
 
-def load(path: Path | str) -> PolicyNet | AZNet:
+NETS = {"mlp": PolicyNet, "gnn": GraphPolicyNet, "az": AZNet}
+
+
+def make_policy(arch: str, hidden: int, layers: int) -> PolicyNet | GraphPolicyNet:
+    return NETS[arch](hidden, layers)
+
+
+def load(path: Path | str) -> PolicyNet | GraphPolicyNet | AZNet:
     ck = torch.load(path, map_location="cpu", weights_only=False)
     cfg = dict(ck["cfg"])
-    net = AZNet(**{k: v for k, v in cfg.items() if k != "kind"}) if cfg.get("kind") == "az" else PolicyNet(**cfg)
+    net = NETS[cfg.pop("kind", "mlp")](**cfg)
     net.load_state_dict(ck["model"])
     net.eval()
     return net

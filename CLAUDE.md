@@ -30,6 +30,8 @@ that isn't linked from this file or the README, warn the owner.** Either link it
 - **Never run anything that can incur costs.** Remote compute stays on prepaid/free Colab (free tier or
   already-bought compute units); no Colab Enterprise, GCP/Vertex, or other billed cloud services, and never
   buy units or upgrade a plan.
+- **Always shut down remote sessions when a job finishes** (Colab: disconnect and delete the runtime, don't
+  just close the tab). An idle GPU runtime keeps burning compute units. Copy results off the runtime first.
 - The owner uses this machine interactively. Heavy jobs make the desktop stutter even when niced (memory
   bandwidth), so keep benchmarks and side jobs to about half the cores.
 
@@ -71,7 +73,8 @@ engine/                   Cargo workspace (release profile: lto=fat, codegen-uni
   catan-py/src/lib.rs     PyO3 module `catan_rl._engine`: Game, VecEnv, AzPool, action_names, bot_tournament
 python/catan_rl/
   __init__.py             re-exports + ACTIONS offset dict (derived from action names)
-  model.py                PolicyNet (PPO) and AZNet (AlphaZero): MLP + LayerNorm torso; save/load; PolicyBot
+  model.py                PolicyNet (MLP), GraphPolicyNet (GNN), AZNet (AlphaZero MLP); save/load; PolicyBot
+  graph.py                board graph (from board_json), typed GNN layer, per-location action mapping
   ppo.py                  PPO trainer (Config dataclass = CLI flags)
   az.py                   AlphaZero trainer: AzPool self-play (Rust) + replay buffer + AZNet
   evaluate.py             evaluate() vs bots or checkpoints (--random-board); replay export
@@ -80,7 +83,7 @@ python/catan_rl/
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
   bench_compute.py        rollout/train throughput and time projections
   smoke.py                end-to-end bindings check
-benchmarks/arch_speed.py  speed of candidate board networks (GNN, transformer, hybrid) vs the MLP; results/ gitignored
+benchmarks/arch_speed.py  speed of candidate board networks (GNN, transformer, hybrid) vs the MLP; reuses graph.py; results/ gitignored
 web/server.py             FastAPI + WebSocket; owns the Game; registers bots (incl. runs/*/best.pt)
 web/static/               index.html, style.css, board.js (canvas renderer), ui.js (session + panels + replays)
 pyproject.toml            maturin config (python-source = python, module = catan_rl._engine)
@@ -171,12 +174,16 @@ The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
 
 ## Networks
 
-- Both trainers use a flat MLP: 1292 → [Linear → LayerNorm → ReLU] × layers → heads. All comparison runs use
+- Both trainers default to a flat MLP: 1292 → [Linear → LayerNorm → ReLU] × layers → heads. All comparison runs use
   2×256 (~0.46M params). PolicyNet (PPO) has a scalar value head; AZNet has a 4-way value head (win
   probability per seat, relative to the player to move).
 - **Known limitation:** the MLP has no notion of board structure (no weight sharing between vertices/hexes), so
-  it memorises one layout and does not transfer to random boards. A GNN/transformer over hexes, vertices and
-  edges with per-location policy heads is the planned replacement (prototypes in `benchmarks/arch_speed.py`).
+  it memorises one layout and does not transfer to random boards.
+- `GraphPolicyNet` (`ppo --arch gnn --hidden <d> --layers <rounds>`) is the replacement: typed message passing
+  over hexes, vertices and edges plus a global token, shared weights, no positional embeddings. Vertex/edge/hex
+  embeddings score settle+city/road/robber; the global token scores the rest and the value. Each node also gets
+  its own legal-action bits from the mask and static coast features. Not trained beyond a smoke test yet.
+  Checkpoints store `cfg.kind` (`mlp` implied when absent, `gnn`, `az`); `model.load` dispatches on it.
 - **Board networks are too slow for this CPU.** They cost 20–30× the MLP's FLOPs per sample (145 nodes × d²
   per layer). Estimated PPO rate: MLP 2×256 ~18k samples/s (network only), GNN d64 L4 ~250, transformer and
   hybrid d64 L4 ~60–75, d128 variants 17–60. A 6M-step diagnostic would take ~7 h with the smallest GNN. Train
