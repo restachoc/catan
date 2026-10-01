@@ -16,8 +16,6 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   2. Run 5 continued or redone at 20–30M steps with stretched LR and VP-shaping schedules. Resuming needs
      `runs/gnn-randboard/latest.pt` on Colab (runs aren't in git), so redoing in one session is simpler.
   3. d128 (~2× slower, ~70 min per 6M) or 6 layers (~1.5×) only if both stall.
-- Old replays in `replays/` (8 files) predate the chance-stream split and no longer reproduce; ask the owner
-  whether to delete them.
 
 ## Open decisions (waiting on the owner)
 

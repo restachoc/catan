@@ -314,8 +314,7 @@ Speeds: [board-network-speed](findings/board-network-speed.md) (GNN d64 6M steps
 - `evaluate()` is fully determined by its seed, and PPO evaluates every checkpoint on the same games (seed
   10000). Use 2000 games for claims ([why](findings/evaluation-noise.md)). Runs before 2026-10-01 have noisier
   `metrics.csv` curves; use `eval_curve.py` + `plot_runs --fixed` for them.
-- Replays and seeds from before the chance-stream split (2026-10-01) don't reproduce: the same seed now gives
-  different dice. Checkpoints are unaffected.
+- Seeds from before the chance-stream split (2026-10-01) give different dice now; old replays were deleted.
 - No Node.js on this machine, so the dataviz palette validator can't run; the charts use slots 1–6 of its
   documented reference palette in order, plus a neutral grey. Keep a run's colour across charts with
   `plot_runs --slots` (run 1 blue, run 4 orange, run 2 aqua, run 3 yellow, az1 magenta, run 5 green).
