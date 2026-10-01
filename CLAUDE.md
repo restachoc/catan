@@ -132,6 +132,9 @@ The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
 
 GPU jobs run on free Colab through the `colab-mcp` tools, with as little notebook code as possible. The
 runtime type (T4 GPU) is the owner's menu choice; the tools can't change it.
+After `runtime.unassign()` the notebook tools disappear; `open_colab_browser_connection` brings them back,
+sometimes in a fresh notebook on a CPU runtime. **Check `nvidia-smi` before launching**, and ask the owner to
+switch to T4 if there's no GPU.
 
 1. One cell, from `/content`:
    ```
