@@ -17,8 +17,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 - GPU training works end to end on Colab (`scripts/colab.sh`, see CLAUDE.md "Remote GPU runs").
 - **Run 5 (`gnn-randboard`) done**: GNN on random boards, 8.7% / 5.7 VP vs run 4's 0.5% / 3.7 (EXPERIMENTS.md).
   Next options for the owner: continue it (`--resume runs/gnn-randboard/latest.pt --total-steps 20e6`, needs
-  the checkpoint uploaded or the run continued in one Colab session), a bigger GNN (d128), or the league
-  slowdown (batch all league opponents into one forward pass).
+  the checkpoint uploaded or the run continued in one Colab session), or a bigger GNN (d128). The league
+  slowdown is fixed (CUDA-graph actors, ~+40% throughput with the league running).
 - The colab-mcp tool call times out after 30 min of silence (the cell keeps running). Long runs are tracked by
   watching `~/Downloads/<run>.zip` instead. Raising the per-server MCP `timeout` would avoid it (owner's config).
 

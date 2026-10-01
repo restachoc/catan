@@ -46,8 +46,8 @@ az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, 
 - Run 5 is still well below chance (25%) and below run 1's 43% on its single board. VP rose fast to ~5 by 2M
   steps, then slowly to ~5.4; the learning rate had decayed by then, so the plateau is unproven (chart:
   `plots/gnn_vs_mlp_randboard.png`). Next: continue it with `--resume`, or a longer/larger run.
-- Throughput on the T4: ~3.3k samples/s while the league pool is empty, ~2.0–2.2k/s once league snapshots
-  play (each adds its own small inference batches). 6M steps took ~45 min.
+- Throughput on the T4 in run 5: ~3.3k samples/s while the league pool was empty, ~2.0–2.2k/s once league
+  snapshots played; 6M steps took ~45 min. Since then rollouts use CUDA graphs: ~2.7–3.2k/s with the league.
 
 **Strategies (from `strategy.py`)**
 - Classification by where resource cards were spent after setup (road 2, extra settlement 4, city 5,

@@ -150,7 +150,8 @@ switch to T4 if there's no GPU.
 Notes: free runtimes have 2 vCPUs, 12 GB RAM, a T4 with 15 GB, and disconnect after ~12 h or when the browser
 tab idles too long, so keep single jobs to a few hours. The job runs inside the cell; `run_code_cell`
 moves to the background after 2 min and notifies on completion. Don't poll. Measured: GNN d64 L4 with `--amp` and
-the diagnostic recipe trains at ~3.0–3.3k samples/s end to end (6M steps ≈ 35 min, plus ~2 min setup).
+the diagnostic recipe trains at ~3.3–3.7k samples/s before the league starts and ~2.7–3.2k/s after (6M steps
+≈ 35 min, plus ~2 min setup).
 
 ## Architecture invariants (don't break these)
 
@@ -243,6 +244,13 @@ the diagnostic recipe trains at ~3.0–3.3k samples/s end to end (6M steps ≈ 3
   engine), `frac_selfplay` (learner in all seats), and the rest league (learner in one seat vs frozen
   snapshots from `runs/<name>/pool/`; the learner itself while the pool is empty). Pure self-play is
   `--frac-heuristic 0 --frac-selfplay 1`.
+- League timeline: league envs start out as self-play (the learner plays every seat while the pool is empty).
+  The first snapshot is saved at iteration `snapshot_every`; from then on up to `active_opponents` snapshots
+  play the other league seats, refreshed every `snapshot_every` iterations, each env switching at its next game
+  end. Opponent moves aren't training data, so samples per iteration drop ~37% once the league starts.
+- On the GPU, rollout actors (learner and opponents) are `GraphedPolicy` wrappers: CUDA-graph replay padded to
+  bucket sizes. An eager GNN `act()` costs ~8 ms at any batch size (host-side launches), so four calls per step
+  made the league rollout 3–4× slower. Graphs read the live weights; in-place optimizer steps need no recapture.
 - Samples are tagged (env, seat). GAE runs per sequence and bootstraps from the same seat's next decision.
   Unfinished tails are **carried into the next rollout** rather than bootstrapped. League seat assignment
   only changes at game end; changing it mid-game would orphan carried samples.
