@@ -140,13 +140,14 @@ runtime type (T4 GPU) is the owner's menu choice; the tools can't change it.
    ```
    `scripts/colab.sh <module> <args>` pulls master, builds the engine, runs `python -m catan_rl.<module>`,
    and zips `runs/<run>/`. So **commit and push before launching**: Colab runs what's on `origin/master`.
-2. The download lands in `~/Downloads/<run>.zip` on this machine (the browser runs here). Unzip it into the
-   repo root, which gives `runs/<run>/`.
+2. The download lands in `~/Downloads/<run>.zip` on this machine (the browser runs here), sometimes a few
+   seconds after the cell finishes. `unzip -qo ~/Downloads/<run>.zip` in the repo root gives `runs/<run>/`.
 3. Delete the runtime right away: a cell with `from google.colab import runtime; runtime.unassign()`.
 
 Notes: free runtimes have 2 vCPUs, 12 GB RAM, a T4 with 15 GB, and disconnect after ~12 h or when the browser
 tab idles too long, so keep single jobs to a few hours. The job runs inside the cell; `run_code_cell`
-moves to the background after 2 min and notifies on completion. Don't poll.
+moves to the background after 2 min and notifies on completion. Don't poll. Measured: GNN d64 L4 with `--amp` and
+the diagnostic recipe trains at ~3.0–3.3k samples/s end to end (6M steps ≈ 35 min, plus ~2 min setup).
 
 ## Architecture invariants (don't break these)
 

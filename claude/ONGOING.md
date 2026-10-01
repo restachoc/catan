@@ -14,7 +14,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   samples/s on 6 CPU threads). Transformer and hybrid remain benchmark-only.
 - **GPU benchmark done** (free Colab T4, 2026-10-01; numbers in CLAUDE.md "Networks"). The GNN d64 L4 is the
   only board network fast enough to iterate with (~3.3k samples/s compiled). Proposed size: d64 L4, owner to confirm.
-- `ppo.py` has `--device cuda --amp`; GPU path not yet tested end to end on Colab (in progress).
+- GPU training works end to end on Colab (`scripts/colab.sh`, see CLAUDE.md "Remote GPU runs"), tested with a
+  200k-step smoke run. Ready for the first real GNN experiment below.
 - First experiment then: run 4's recipe (6M steps, random boards) with `--arch gnn --hidden 64 --layers 4`
   on Colab, compared with run 1 on the fixed board.
 - Nothing is running. (The web server may still be up on port 8765 from an earlier session; restart it
