@@ -21,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 # Reference categorical palette (fixed order, light mode).
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7"]
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 
 
@@ -48,7 +48,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--labels", nargs="+")
-    ap.add_argument("--slots", nargs="+", type=int, help="palette slot (1-6) per run, so a run keeps its colour across charts")
+    ap.add_argument("--slots", nargs="+", type=int, help="palette slot (1-7) per run, so a run keeps its colour across charts")
     ap.add_argument("--out", help="default: plots/<run>_vs_<run>.png")
     args = ap.parse_args()
     labels = args.labels or args.runs

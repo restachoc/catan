@@ -338,9 +338,12 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
   10000). Use 2000 games for claims ([why](findings/evaluation-noise.md)). Runs before 2026-10-01 have noisier
   `metrics.csv` curves; `eval_curve.py` re-evaluates them and `plot_runs` picks that up.
 - Seeds from before the chance-stream split (2026-10-01) give different dice now; old replays were deleted.
-- No Node.js on this machine, so the dataviz palette validator can't run; the charts use slots 1–6 of its
-  documented reference palette in order, plus a neutral grey. Keep a run's colour across charts with
-  `plot_runs --slots` (run 1 blue, run 4 orange, run 2 aqua, run 3 yellow, az1 magenta, run 5 green).
+- No Node.js on this machine, so the dataviz palette validator can't run; the charts use the slots of its
+  documented reference palette (slots 1–7 used), plus a neutral grey. Keep a run's colour across charts with
+  `plot_runs --slots` (run 1 blue, run 4 orange, run 2 aqua, run 3 yellow, az1 magenta, run 5 green, run 6
+  violet). `all_runs.png` = `plot_runs diag diag-randboard selfplay selfplay-randboard gnn-randboard --slots 1 2 3 4 6`
+  with labels "Run 1: mixed + VP, fixed board", "Run 4: mixed + VP, random boards", "Run 2: self-play, fixed board",
+  "Run 3: self-play, random boards", "Run 5: run 4 with the GNN".
 
 ## Verifying changes
 
