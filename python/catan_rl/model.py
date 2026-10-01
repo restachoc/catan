@@ -117,6 +117,43 @@ class GraphPolicyNet(nn.Module):
     act = PolicyNet.act
 
 
+class PolicyStack:
+    """Several policies of one architecture evaluated in a single batched call (vmap over stacked weights).
+
+    The PPO rollout acts for the learner and every league opponent once per env step. Each forward has a
+    fixed cost (Python dispatch and kernel launches for the GNN's many small ops) that dominates the small
+    league batches, so one call for all policies replaces one call per policy. The weights are copied at
+    construction: rebuild the stack after the learner is updated.
+    """
+
+    def __init__(self, nets: list[nn.Module]):
+        from torch.func import functional_call, stack_module_state
+
+        base = nets[0]
+        params, _ = stack_module_state(nets)
+        self.params = {k: v.detach() for k, v in params.items()}
+        buffers = dict(base.named_buffers())  # identical across nets (graph structure), so not stacked
+        self.amp, self.dev = base.amp, next(base.parameters()).device
+        self.fn = torch.vmap(lambda p, o, m: functional_call(base, (p, buffers), (o, m)))
+
+    @torch.inference_mode()
+    def act(self, obs: list[np.ndarray], mask: list[np.ndarray]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """obs[k], mask[k]: the batch for policy k (may be empty). Returns (actions, logp, value) per policy."""
+        sizes = [len(o) for o in obs]
+        B = max(max(sizes), 1)
+        O = np.zeros((len(obs), B, OBS_SIZE), np.float32)
+        M = np.zeros((len(obs), B, N_ACTIONS), np.bool_)
+        M[:, :, 0] = True  # padding rows need one legal action
+        for k, n in enumerate(sizes):
+            O[k, :n], M[k, :n] = obs[k], mask[k]
+        with torch.autocast(self.dev.type, dtype=torch.float16, enabled=self.amp and self.dev.type == "cuda"):
+            logits, v = self.fn(self.params, torch.from_numpy(O).to(self.dev), torch.from_numpy(M).to(self.dev))
+        a = torch.distributions.Categorical(logits=logits).sample()
+        logp = torch.log_softmax(logits, -1).gather(-1, a[..., None]).squeeze(-1)
+        out = torch.stack([a.float(), logp, v]).cpu().numpy()  # one device sync for everything
+        return [(out[0, k, :n].astype(np.int64), out[1, k, :n], out[2, k, :n]) for k, n in enumerate(sizes)]
+
+
 class AZNet(nn.Module):
     """AlphaZero network: MLP torso, masked policy head, and a value head predicting each seat's win
     probability (seat 0 = the player to act, others in turn order)."""

@@ -32,7 +32,7 @@ import torch
 
 from catan_rl import N_ACTIONS, OBS_SIZE, VecEnv
 from catan_rl.evaluate import evaluate
-from catan_rl.model import PolicyNet, load, make_policy, save
+from catan_rl.model import PolicyNet, PolicyStack, load, make_policy, save
 
 RUST_BOT = -1
 LEARNER = 0
@@ -267,19 +267,26 @@ class Trainer:
         N = self.cfg.num_envs
         ar = np.arange(N)
         self.net.eval()
+        # GPU: learner + league opponents in one forward per step (ctrl id k -> policy k). Not on the CPU, where
+        # compute dominates and padding every policy to the learner's batch would cost more than it saves.
+        stack = PolicyStack([self.net, *self.opponents]) if self.opponents and self.dev.type == "cuda" else None
         for _ in range(self.cfg.rollout):
             ctrl_now = self.ctrl[ar, self.actor]
             actions = np.zeros(N, np.int64)
-            li = np.nonzero(ctrl_now == LEARNER)[0]
+            groups = [np.nonzero(ctrl_now == k)[0] for k in range(1 + len(self.opponents))]
+            if stack is None:
+                outs = [p.act(self.obs[g], self.mask[g]) if len(g) else None
+                        for p, g in zip([self.net, *self.opponents], groups)]
+            else:
+                outs = stack.act([self.obs[g] for g in groups], [self.mask[g] for g in groups])
+            for g, out in zip(groups, outs):
+                if out is not None:
+                    actions[g] = out[0]
+            li = groups[0]
             if len(li):
-                a, lp, v = self.net.act(self.obs[li], self.mask[li])
-                actions[li] = a
+                a, lp, v = outs[0]
                 idx = buf.add(self.obs[li], self.mask[li], a, lp, v, li, self.actor[li])
                 self.last_idx[li, self.actor[li]] = idx
-            for k, opp in enumerate(self.opponents, start=1):
-                oi = np.nonzero(ctrl_now == k)[0]
-                if len(oi):
-                    actions[oi] = opp.act(self.obs[oi], self.mask[oi])[0]
             self.env.step(actions, self.obs, self.mask, self.actor, self.done, self.winner, self.length, self.final_vp)
             self.steps += len(li)
             for e in np.nonzero(self.done)[0]:
