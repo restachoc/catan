@@ -95,7 +95,7 @@ python/catan_rl/
   az.py                   AlphaZero trainer: AzPool self-play (Rust) + replay buffer + AZNet
   evaluate.py             evaluate() vs bots or checkpoints (--random-board); replay export
   strategy.py             strategy mix of a run's snapshots in self-play -> plots/<run>_strategy.png
-  eval_curve.py           every snapshot of a run on the same eval games -> runs/<run>/eval_curve.csv (plot_runs --fixed)
+  eval_curve.py           every snapshot of a run on the same eval games -> runs/<run>/eval_curve.csv (plot_runs uses it)
   plot_runs.py            eval curves of several runs side by side
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
   bench_compute.py        rollout/train throughput and time projections
@@ -131,7 +131,7 @@ nice -n 10 .venv/bin/python -m catan_rl.az --name <run> [flags]    # flags mirro
 .venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--random-board] [--replays N]
 .venv/bin/python -m catan_rl.strategy <run> [--games 300]   # cached in runs/<run>/strategy.csv
 .venv/bin/python -m catan_rl.generalization <run> ... [--labels ...]   # cached in runs/<run>/generalization.json
-.venv/bin/python -m catan_rl.eval_curve <run> ...   # then plot_runs --fixed: smooth curves on fixed games
+.venv/bin/python -m catan_rl.eval_curve <run> ...   # old runs only; plot_runs then uses the fixed-game curve
 .venv/bin/python -m catan_rl.plot_runs <run> ... [--labels ...] [--out plots/<name>.png]   # default plots/<a>_vs_<b>.png
 ```
 
@@ -313,7 +313,7 @@ Speeds: [board-network-speed](findings/board-network-speed.md) (GNN d64 6M steps
   where an `"external"` seat acts.
 - `evaluate()` is fully determined by its seed, and PPO evaluates every checkpoint on the same games (seed
   10000). Use 2000 games for claims ([why](findings/evaluation-noise.md)). Runs before 2026-10-01 have noisier
-  `metrics.csv` curves; use `eval_curve.py` + `plot_runs --fixed` for them.
+  `metrics.csv` curves; `eval_curve.py` re-evaluates them and `plot_runs` picks that up.
 - Seeds from before the chance-stream split (2026-10-01) give different dice now; old replays were deleted.
 - No Node.js on this machine, so the dataviz palette validator can't run; the charts use slots 1–6 of its
   documented reference palette in order, plus a neutral grey. Keep a run's colour across charts with

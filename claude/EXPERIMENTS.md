@@ -4,8 +4,8 @@ Training runs so far and their final numbers. What they showed lives in `finding
 Linked from [CLAUDE.md](../CLAUDE.md).
 
 All runs: 4 players, 2×256 MLP unless noted, evaluated with the policy in one seat vs 3 heuristic bots (chance = 25%).
-Charts: `plots/all_runs_fixed.png` (training curves, every snapshot on the same games; `all_runs.png` is
-the noisier in-training version), `plots/generalization.png` (fixed vs random boards),
+Charts: `plots/all_runs.png` (training curves, every snapshot on the same 400 games; az1 isn't in it since it
+kept no snapshots), `plots/generalization.png` (fixed vs random boards),
 `plots/<run>_strategy.png` (strategy mix over training).
 
 ## Runs

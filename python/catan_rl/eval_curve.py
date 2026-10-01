@@ -5,7 +5,7 @@
 The in-training evaluations of older runs used a new game set every time (seed 10000 + iter), so their curves
 mix policy changes with game-set luck (±4 pp at 400 games). This replays every snapshot in runs/<run>/pool
 plus latest.pt on the same games (`evaluate` is fully determined by its seed). Cached per checkpoint in
-runs/<run>/eval_curve.csv; `plot_runs --fixed` plots it.
+runs/<run>/eval_curve.csv; `plot_runs` uses it automatically.
 """
 
 from __future__ import annotations

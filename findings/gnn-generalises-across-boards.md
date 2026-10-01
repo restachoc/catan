@@ -1,6 +1,6 @@
 # The GNN learns random boards where the MLP can't
 
-*2026-10-01. Run 5 (`gnn-randboard`) vs run 4 (`diag-randboard`). Charts: `plots/gnn_vs_mlp_randboard_fixed.png`,
+*2026-10-01. Run 5 (`gnn-randboard`) vs run 4 (`diag-randboard`). Charts: `plots/gnn_vs_mlp_randboard.png`,
 `plots/generalization.png`.*
 
 **Setup.** Run 4's recipe (6M steps, mixed opponents, VP shaping, random boards) with `--arch gnn --hidden 64

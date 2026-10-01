@@ -1,6 +1,6 @@
 # Mixed opponents with VP shaping learn far faster than pure self-play with win/loss
 
-*2026-09-30. Run 1 (`diag`) vs run 2 (`selfplay`), fixed board. Chart: `plots/all_runs_fixed.png`.*
+*2026-09-30. Run 1 (`diag`) vs run 2 (`selfplay`), fixed board. Chart: `plots/all_runs.png`.*
 
 - Run 1 (25% heuristic, 25% self-play, 50% league; VP shaping 0.5): win rate passes 25% at ~3M steps and
   reaches ~43% by 6M.

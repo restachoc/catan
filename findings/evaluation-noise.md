@@ -1,7 +1,7 @@
 # Evaluation curves were bumpy because every evaluation used different games
 
-*2026-10-01. Engine and `evaluate()` changes; re-evaluation with `eval_curve.py`. Charts: `plots/all_runs_fixed.png`,
-`plots/gnn_vs_mlp_randboard_fixed.png`.*
+*2026-10-01. Engine and `evaluate()` changes; re-evaluation with `eval_curve.py`. Charts: `plots/all_runs.png`,
+`plots/gnn_vs_mlp_randboard.png`.*
 
 **Cause.** PPO evaluated each checkpoint on a new game set (seed 10000 + iter). Even with a fixed seed the games
 weren't fixed: dice and steals shared one RNG, so one different steal shifted every later roll, and VecEnv seeded
