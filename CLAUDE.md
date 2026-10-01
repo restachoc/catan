@@ -125,8 +125,8 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python benchmarks/arch_speed.py [--quick] [--csv benchmarks/results/arch_speed.csv]   # niced, half the cores
 .venv/bin/uvicorn web.server:app --port 8765              # UI at http://localhost:8765
 
-# Long runs: always under nice, so interactive jobs get priority (see "CPU sharing")
-nice -n 10 .venv/bin/python -m catan_rl.ppo --name <run> [flags]   # flags mirror ppo.Config fields
+# Long runs: always under nice (see "CPU sharing"); console output goes to runs/<run>/train.log, never the repo root
+nice -n 10 .venv/bin/python -m catan_rl.ppo --name <run> [flags] > runs/<run>/train.log 2>&1   # flags mirror ppo.Config
 nice -n 10 .venv/bin/python -m catan_rl.az --name <run> [flags]    # flags mirror az.Config fields
 
 .venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--random-board] [--replays N]
