@@ -5,36 +5,20 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 6 (`gnn128-randboard`) is training on Colab** (started 2026-10-01 ~15:00, ~70 min): run 5's recipe with
-  `--hidden 128`, nothing else changed. Trained without `--wandb` (launched before W&B existed); its in-training
-  evals already use the fixed seed-10000 games. Only other difference from run 5: dice now come from their own
-  stream (same distribution, different games). When `~/Downloads/gnn128-randboard.zip` exists:
-  1. `unzip -qo ~/Downloads/gnn128-randboard.zip` in the repo root, then delete the zip.
-  2. Delete the Colab runtime: `open_colab_browser_connection`, then run the `runtime.unassign()` cell (if the
-     runtime is already gone, nothing to do).
-  3. 2000-game eval: `python -m catan_rl.generalization diag selfplay selfplay-randboard diag-randboard
-     gnn-randboard gnn128-randboard --labels "Run 1" "Run 2" "Run 3" "Run 4" "Run 5 (GNN)" "Run 6 (GNN d128)"`
-     (half the cores, niced); look at `plots/generalization.png`.
-  4. Curves (run 6 = palette slot 7, violet):
-     `plot_runs diag-randboard gnn-randboard gnn128-randboard --slots 2 6 7 --labels "Run 4 (MLP)" "Run 5 (GNN d64)"
-     "Run 6 (GNN d128)" --out plots/gnn_d64_vs_d128.png`, and add `gnn128-randboard` (slot 7) to `plots/all_runs.png`
-     (command: same runs/labels/slots as now, see CLAUDE.md palette note). Look at both charts.
-  5. Write `findings/gnn-width-d64-vs-d128.md`, add run 6 to `claude/EXPERIMENTS.md`, index the finding in
-     CLAUDE.md, then `python -m catan_rl.wandb_backfill gnn128-randboard`.
-  If the zip never arrives (runtime disconnected), the run is lost; tell the owner.
-- **Strategy analysis of run 5** (`strategy.py gnn-randboard`, pid 553360, nice 10) was at 27 of 29 snapshots.
-  When done: look at `plots/gnn-randboard_strategy.png`, add run 5 to
-  [bot-strategies](../findings/bot-strategies.md), and re-upload it:
-  `python -m catan_rl.wandb_backfill gnn-randboard --replace` (its W&B strategy data is partial).
+- **Run 6 strategy analysis** (started 2026-10-01 ~17:00, niced, 7 threads): `strategy gnn128-randboard`, then
+  `wandb_backfill gnn128-randboard --replace --fixed-evals` (its evals already used the fixed games; keep the
+  flag). Log: `runs/gnn128-randboard/strategy.log`. When done: look at `plots/gnn128-randboard_strategy.png`, add
+  run 6 to [bot-strategies](../findings/bot-strategies.md). The analysis caches per snapshot, so a rerun is cheap.
 - **Board network: the GNN is chosen.** Run 5 (d64 L4) reaches 8.7% on random boards vs the MLP's 0.5%, still
-  rising ([finding](../findings/gnn-generalises-across-boards.md)). The hybrid (GNN + attention to global/seat
+  rising ([finding](../findings/gnn-generalises-across-boards.md)); d128 (run 6) reaches 13.4%
+  ([finding](../findings/gnn-width-d64-vs-d128.md)). The hybrid (GNN + attention to global/seat
   tokens) is the upgrade path if the 64-dim global token proves a bottleneck.
 - **Next experiments, proposed to the owner** (launch with `--wandb` from now on):
   1. GNN d64 on the fixed board, 6M steps (~40 min): if it nears run 1's 43%, the architecture is adequate.
-  2. The GNN at 20–30M steps with stretched LR and VP-shaping schedules (redo in one Colab session; runs aren't
-     in git, so resuming needs the checkpoint uploaded).
-  3. 6 layers (~1.5× slower) if those stall; d128 depends on run 6.
-- W&B: everything up to run 5 is backfilled. A toy run `wandb-check` is in the project; the owner may delete it.
+  2. The GNN at 20–30M steps (constant LR after warmup now; VP shaping still anneals over half of
+     `total_steps`). Redo in one Colab session; runs aren't in git, so resuming needs the checkpoint uploaded.
+  3. 6 layers (~1.5× slower) if those stall. Use d128 as the base (run 6 beat d64).
+- W&B: everything up to run 6 is backfilled. A toy run `wandb-check` is in the project; the owner may delete it.
   The owner was asked to confirm the project's visibility (team account `gianni-van-de-velde-universiteit-gent`).
 
 ## Open decisions (waiting on the owner)

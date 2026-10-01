@@ -1,12 +1,14 @@
 """Upload finished runs that trained without --wandb to W&B, under the same metric names live runs use.
 
-    python -m catan_rl.wandb_backfill <run> ... [--project catan] [--replace]
+    python -m catan_rl.wandb_backfill <run> ... [--project catan] [--replace] [--fixed-evals]
 
 Per run: metrics.csv (training curves); eval_curve.csv as eval/win_rate and eval/vp (the same fixed seed-10000
 games live runs evaluate on, so old and new runs compare directly), with the old per-iteration evaluations
-under eval_legacy/; strategy.csv as strategy_selfplay/ (self-play games, unlike the live strategy/ metrics
-from training games); generalization.json into the run summary. The W&B run id goes to runs/<run>/wandb_id,
-so a later `ppo --resume --wandb` continues the same W&B run. --replace deletes a previous backfill first.
+under eval_legacy/. With --fixed-evals (runs from 2026-10-01 on, whose in-training evaluations already used the
+fixed games) those go to eval/ instead. strategy.csv as strategy_selfplay/ (self-play games, unlike the live
+strategy/ metrics from training games); generalization.json into the run summary. The W&B run id goes to
+runs/<run>/wandb_id, so a later `ppo --resume --wandb` continues the same W&B run. --replace deletes a previous
+backfill first.
 Credentials as for live runs (see tracking.py).
 """
 
@@ -27,6 +29,7 @@ AZ = {
     "eval_search_wr": "eval_legacy/search_win_rate", "eval_search_vp": "eval_legacy/search_vp",
 }
 OLD_EVAL = {"eval_wr_heuristic": "eval_legacy/win_rate", "eval_vp": "eval_legacy/vp"}
+FIXED_EVAL = {"eval_wr_heuristic": "eval/win_rate", "eval_vp": "eval/vp"}
 
 
 def num(v: str):
@@ -36,7 +39,7 @@ def num(v: str):
         return None
 
 
-def rows_by_step(rdir: Path) -> dict[int, dict]:
+def rows_by_step(rdir: Path, fixed_evals: bool = False) -> dict[int, dict]:
     """All logged values of a run, merged per training step."""
     by_step: dict[int, dict] = {}
 
@@ -45,7 +48,7 @@ def rows_by_step(rdir: Path) -> dict[int, dict]:
 
     with (rdir / "metrics.csv").open() as f:
         rows = list(csv.DictReader(f))
-    names = AZ if "loss_pi" in rows[0] else {**LEGACY, **OLD_EVAL}
+    names = AZ if "loss_pi" in rows[0] else {**LEGACY, **(FIXED_EVAL if fixed_evals else OLD_EVAL)}
     for r in rows:
         add(int(float(r["steps"])), {names[k]: num(v) for k, v in r.items() if k in names and k != "steps"})
     if (rdir / "eval_curve.csv").exists():
@@ -61,7 +64,7 @@ def rows_by_step(rdir: Path) -> dict[int, dict]:
     return dict(sorted(by_step.items()))
 
 
-def backfill(run: str, project: str, replace: bool) -> None:
+def backfill(run: str, project: str, replace: bool, fixed_evals: bool = False) -> None:
     import wandb
 
     rdir = Path("runs") / run
@@ -83,7 +86,7 @@ def backfill(run: str, project: str, replace: bool) -> None:
                     dir=str(rdir), settings=wandb.Settings(save_code=False))
     wb.define_metric("train/steps")
     wb.define_metric("*", step_metric="train/steps")
-    rows = rows_by_step(rdir)
+    rows = rows_by_step(rdir, fixed_evals)
     for vals in rows.values():
         wb.log(vals)
     gen = rdir / "generalization.json"
@@ -102,9 +105,10 @@ def main() -> None:
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--project", default="catan")
     ap.add_argument("--replace", action="store_true")
+    ap.add_argument("--fixed-evals", action="store_true", help="metrics.csv evals already used the fixed games")
     args = ap.parse_args()
     for run in args.runs:
-        backfill(run, args.project, args.replace)
+        backfill(run, args.project, args.replace, args.fixed_evals)
 
 
 if __name__ == "__main__":

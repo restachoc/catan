@@ -18,8 +18,8 @@ kept no snapshots), `plots/generalization.png` (fixed vs random boards),
 | `selfplay` | Run 2 | PPO, pure self-play, win/loss only (`--frac-heuristic 0 --frac-selfplay 1 --vp-coef 0`) | 1.5% / 4.7 | 0.5% / 3.4 |
 | `selfplay-randboard` | Run 3 | Run 2 + `--random-board` | 1.2% / 3.8 | 1.6% / 4.1 |
 | `diag-randboard` | Run 4 | Run 1 + `--random-board` | 0.1% / 3.4 | 0.5% / 3.7 |
-| `gnn-randboard` | Run 5 (GNN) | Run 4 with `--arch gnn --hidden 64 --layers 4` (0.30M params), trained on a Colab T4 with `--amp` | 11.2% / 6.4 | **8.7% / 5.7** |
-| `gnn128-randboard` | Run 6 (GNN d128) | Run 5 with `--hidden 128` (1.15M params) | *training* | *training* |
+| `gnn-randboard` | Run 5 (GNN) | Run 4 with `--arch gnn --hidden 64 --layers 4` (0.30M params), trained on a Colab T4 with `--amp` | 11.2% / 6.4 | 8.7% / 5.7 |
+| `gnn128-randboard` | Run 6 (GNN d128) | Run 5 with `--hidden 128` (1.15M params) | 11.7% / 6.3 | **13.4% / 6.3** |
 | `az1` | AlphaZero az1 | AlphaZero, 64 sims, 256 games, 3M samples (~1.6 h), pure self-play, win/loss | 0.0% / 3.1 (raw policy) | 0.1% / 2.8 |
 
 az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, no upward trend.
@@ -29,6 +29,7 @@ az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, 
 - [mlp-memorises-board-layouts](../findings/mlp-memorises-board-layouts.md): runs 1, 3, 4.
 - [gnn-generalises-across-boards](../findings/gnn-generalises-across-boards.md): run 5 vs run 4.
 - [reward-shaping-and-opponents](../findings/reward-shaping-and-opponents.md): run 1 vs run 2.
-- [bot-strategies](../findings/bot-strategies.md): strategy mix of runs 1–3.
+- [gnn-width-d64-vs-d128](../findings/gnn-width-d64-vs-d128.md): run 6 vs run 5.
+- [bot-strategies](../findings/bot-strategies.md): strategy mix of runs 1–3 and 5.
 - [alphazero-value-memorisation](../findings/alphazero-value-memorisation.md): az1.
 - [evaluation-noise](../findings/evaluation-noise.md): why the in-training curves are bumpy; fixed-game curves.

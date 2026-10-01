@@ -59,6 +59,7 @@ class Config:
     frac_selfplay: float = 0.25
     # ppo
     lr: float = 3e-4
+    warmup_steps: float = 5e5  # linear LR warmup over this many samples, then constant
     gamma: float = 0.999
     lam: float = 0.95
     clip: float = 0.2
@@ -324,9 +325,8 @@ class Trainer:
         adv, ret, train, carry = gae(buf, cfg.gamma, cfg.lam)
         self.carry = buf.take(carry)
         idx = np.nonzero(train)[0]
-        frac = min(1.0, self.steps / cfg.total_steps)
         for g in self.opt.param_groups:
-            g["lr"] = cfg.lr * max(0.05, 1.0 - frac)
+            g["lr"] = cfg.lr * min(1.0, (self.steps + 1) / max(cfg.warmup_steps, 1))
 
         # obs/mask stay on the host (largest arrays); each minibatch is copied to the device
         obs = torch.from_numpy(buf.obs[idx])
@@ -524,7 +524,7 @@ def main() -> None:
         if t is bool:
             ap.add_argument(name, action=argparse.BooleanOptionalAction, default=f.default)
         else:
-            ap.add_argument(name, type=float if f.name == "total_steps" else t, default=f.default)
+            ap.add_argument(name, type=float if f.name in ("total_steps", "warmup_steps") else t, default=f.default)
     cfg = Config(**vars(ap.parse_args()))
     Trainer(cfg).run()
 

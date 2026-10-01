@@ -1,6 +1,6 @@
 # What strategies the bots learn
 
-*2026-09-30. `strategy.py` on runs 1–3 (300 self-play games per snapshot). Charts: `plots/<run>_strategy.png`.*
+*2026-09-30. `strategy.py` on runs 1–3 and 5 (300 self-play games per snapshot). Charts: `plots/<run>_strategy.png`.*
 
 Players are classified by where they spent resource cards after setup (road 2, extra settlement 4, city 5,
 dev card 3): road builder ≥60% on expansion, OWS ≤40% (split into dev cards vs cities), balanced in between.
@@ -11,3 +11,6 @@ dev card 3): road builder ≥60% on expansion, OWS ≤40% (split into dev cards 
 - Extra settlements get only 11–15% of spending: the bots barely expand beyond their two starting settlements,
   a clear weakness.
 - Random-board self-play (run 3) ends more mixed: ~40% balanced, ~40% OWS-dev, ~20% road builders among winners.
+- Run 5 (GNN, random boards; added 2026-10-01) looks the same: winners end ~46% OWS-dev, ~33–40% balanced,
+  ~15–19% road builders, and the mix is flat after ~1M steps. Winners spend 15% on extra settlements (all
+  players 11%), so the GNN doesn't fix the under-expansion either.
