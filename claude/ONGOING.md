@@ -12,11 +12,11 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   (worth adding on top of the GNN). All three graph prototypes are in `benchmarks/arch_speed.py`.
 - **The GNN is in the trainer** (`GraphPolicyNet`, `ppo --arch gnn`), smoke-tested only (20k steps, ~220
   samples/s on 6 CPU threads). Transformer and hybrid remain benchmark-only.
-- **Next step:** the owner runs `benchmarks/arch_speed.py --device cuda --train-chunk 4096` on the GPU machine
-  (clone of `restachoc/catan`) and picks a size. `ppo.py` has no `--device` yet; add it (net on GPU for
-  updates, and probably for rollout inference too) before training there.
-- First experiment then: run 4's recipe (6M steps, random boards) with `--arch gnn`, compared with run 1 on the
-  fixed board.
+- **GPU benchmark done** (free Colab T4, 2026-10-01; numbers in CLAUDE.md "Networks"). The GNN d64 L4 is the
+  only board network fast enough to iterate with (~3.3k samples/s compiled). Proposed size: d64 L4, owner to confirm.
+- `ppo.py` has `--device cuda --amp`; GPU path not yet tested end to end on Colab (in progress).
+- First experiment then: run 4's recipe (6M steps, random boards) with `--arch gnn --hidden 64 --layers 4`
+  on Colab, compared with run 1 on the fixed board.
 - Nothing is running. (The web server may still be up on port 8765 from an earlier session; restart it
   to pick up new `best.pt` files.)
 

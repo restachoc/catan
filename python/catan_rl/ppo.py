@@ -76,6 +76,9 @@ class Config:
     eval_games: int = 400
     threads: int = 0
     resume: str = ""
+    # hardware: "cpu" or "cuda"; amp = fp16 autocast (cuda only, ~1.5x for the GNN on a T4)
+    device: str = "cpu"
+    amp: bool = False
 
 
 class Buffer:
@@ -159,8 +162,12 @@ class Trainer:
         self.pool_dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "config.json").write_text(json.dumps(dataclasses.asdict(cfg), indent=2))
 
-        self.net = make_policy(cfg.arch, cfg.hidden, cfg.layers)
+        self.dev = torch.device(cfg.device)
+        self.amp = cfg.amp and self.dev.type == "cuda"
+        self.net = make_policy(cfg.arch, cfg.hidden, cfg.layers).to(self.dev)
+        self.net.amp = self.amp
         self.opt = torch.optim.Adam(self.net.parameters(), lr=cfg.lr, eps=1e-5)
+        self.scaler = torch.amp.GradScaler(self.dev.type, enabled=self.amp)
         self.steps = 0
         self.iter = 0
         self.best_wr = -1.0
@@ -227,7 +234,11 @@ class Trainer:
         picks = [pool[-1]] + random.sample(pool[:-1], k - 1) if len(pool) > 1 else [pool[-1]]
         # Seat assignments only change at game end (assign_league), so running games keep their
         # learner seat; opponent ids stay valid because the active set never shrinks.
-        self.opponents = [load(p) for p in picks]
+        self.opponents = [self.on_device(load(p)) for p in picks]
+
+    def on_device(self, net: PolicyNet) -> PolicyNet:
+        net.amp = self.amp
+        return net.to(self.dev)
 
     def snapshot(self) -> None:
         save(self.net, self.pool_dir / f"iter_{self.iter:06d}.pt", iter=self.iter, steps=self.steps)
@@ -298,12 +309,11 @@ class Trainer:
         for g in self.opt.param_groups:
             g["lr"] = cfg.lr * max(0.05, 1.0 - frac)
 
+        # obs/mask stay on the host (largest arrays); each minibatch is copied to the device
         obs = torch.from_numpy(buf.obs[idx])
         mask = torch.from_numpy(buf.mask[idx])
-        act = torch.from_numpy(buf.act[idx])
-        old_lp = torch.from_numpy(buf.logp[idx])
-        adv_t = torch.from_numpy(adv[idx])
-        ret_t = torch.from_numpy(ret[idx])
+        act, old_lp, adv_t, ret_t = (torch.from_numpy(x).to(self.dev) for x in
+                                     (buf.act[idx], buf.logp[idx], adv[idx], ret[idx]))
         n = len(idx)
         mb = min(cfg.minibatch, n)
         self.net.train()
@@ -312,21 +322,25 @@ class Trainer:
             perm = torch.randperm(n)
             for s in range(0, n - mb + 1, mb):
                 b = perm[s : s + mb]
-                logits, v = self.net(obs[b], mask[b])
+                bd = b.to(self.dev)
+                with torch.autocast(self.dev.type, dtype=torch.float16, enabled=self.amp):
+                    logits, v = self.net(obs[b].to(self.dev), mask[b].to(self.dev))
                 logp_all = torch.log_softmax(logits, -1)
-                lp = logp_all.gather(-1, act[b, None]).squeeze(-1)
+                lp = logp_all.gather(-1, act[bd, None]).squeeze(-1)
                 probs = logp_all.exp()
                 ent = -(probs * logp_all.clamp(min=-30)).sum(-1).mean()
-                ratio = (lp - old_lp[b]).exp()
-                a = adv_t[b]
+                ratio = (lp - old_lp[bd]).exp()
+                a = adv_t[bd]
                 a = (a - a.mean()) / (a.std() + 1e-8)
                 pg = -torch.min(ratio * a, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a).mean()
-                vf = 0.5 * (v - ret_t[b]).pow(2).mean()
+                vf = 0.5 * (v - ret_t[bd]).pow(2).mean()
                 loss = pg + cfg.vf_coef * vf - cfg.ent_coef * ent
                 self.opt.zero_grad(set_to_none=True)
-                loss.backward()
+                self.scaler.scale(loss).backward()
+                self.scaler.unscale_(self.opt)
                 torch.nn.utils.clip_grad_norm_(self.net.parameters(), cfg.max_grad_norm)
-                self.opt.step()
+                self.scaler.step(self.opt)
+                self.scaler.update()
                 with torch.no_grad():
                     logs["pg"].append(pg.item())
                     logs["vf"].append(vf.item())

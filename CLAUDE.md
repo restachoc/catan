@@ -30,8 +30,8 @@ that isn't linked from this file or the README, warn the owner.** Either link it
 - **Never run anything that can incur costs.** Remote compute stays on prepaid/free Colab (free tier or
   already-bought compute units); no Colab Enterprise, GCP/Vertex, or other billed cloud services, and never
   buy units or upgrade a plan.
-- **Always shut down remote sessions when a job finishes** (Colab: disconnect and delete the runtime, don't
-  just close the tab). An idle GPU runtime keeps burning compute units. Copy results off the runtime first.
+- **Always shut down remote sessions when a job finishes** (Colab: `runtime.unassign()`, see "Remote GPU
+  runs"; closing the tab is not enough). An idle GPU runtime keeps burning compute units. Copy results off first.
 - The owner uses this machine interactively. Heavy jobs make the desktop stutter even when niced (memory
   bandwidth), so keep benchmarks and side jobs to about half the cores.
 
@@ -83,6 +83,7 @@ python/catan_rl/
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
   bench_compute.py        rollout/train throughput and time projections
   smoke.py                end-to-end bindings check
+scripts/colab.sh          one-command Colab job: build engine, run a catan_rl module, zip runs/<run>
 benchmarks/arch_speed.py  speed of candidate board networks (GNN, transformer, hybrid) vs the MLP; reuses graph.py; results/ gitignored
 web/server.py             FastAPI + WebSocket; owns the Game; registers bots (incl. runs/*/best.pt)
 web/static/               index.html, style.css, board.js (canvas renderer), ui.js (session + panels + replays)
@@ -126,6 +127,26 @@ The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
 - This machine: 14 cores, 15 GB RAM, AVX2 only, no GPU. The owner has a separate GPU machine that pulls from
   `origin`. Setup there: rustup, a venv, `maturin develop --release -E train`, then the smoke test.
   `runs/`, `replays/` and `plots/` are gitignored, so checkpoints don't travel with the repo.
+
+## Remote GPU runs (Colab): the default for GPU work
+
+GPU jobs run on free Colab through the `colab-mcp` tools, with as little notebook code as possible. The
+runtime type (T4 GPU) is the owner's menu choice; the tools can't change it.
+
+1. One cell, from `/content`:
+   ```
+   !git clone -q https://github.com/restachoc/catan 2>/dev/null; bash catan/scripts/colab.sh ppo --name <run> --device cuda --amp [flags]
+   from google.colab import files; files.download("/content/<run>.zip")
+   ```
+   `scripts/colab.sh <module> <args>` pulls master, builds the engine, runs `python -m catan_rl.<module>`,
+   and zips `runs/<run>/`. So **commit and push before launching**: Colab runs what's on `origin/master`.
+2. The download lands in `~/Downloads/<run>.zip` on this machine (the browser runs here). Unzip it into the
+   repo root, which gives `runs/<run>/`.
+3. Delete the runtime right away: a cell with `from google.colab import runtime; runtime.unassign()`.
+
+Notes: free runtimes have 2 vCPUs, 12 GB RAM, a T4 with 15 GB, and disconnect after ~12 h or when the browser
+tab idles too long, so keep single jobs to a few hours. The job runs inside the cell; `run_code_cell`
+moves to the background after 2 min and notifies on completion. Don't poll.
 
 ## Architecture invariants (don't break these)
 
@@ -185,9 +206,30 @@ The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
   its own legal-action bits from the mask and static coast features. Not trained beyond a smoke test yet.
   Checkpoints store `cfg.kind` (`mlp` implied when absent, `gnn`, `az`); `model.load` dispatches on it.
 - **Board networks are too slow for this CPU.** They cost 20–30× the MLP's FLOPs per sample (145 nodes × d²
-  per layer). Estimated PPO rate: MLP 2×256 ~18k samples/s (network only), GNN d64 L4 ~250, transformer and
-  hybrid d64 L4 ~60–75, d128 variants 17–60. A 6M-step diagnostic would take ~7 h with the smallest GNN. Train
-  them on the GPU machine; there the gap should shrink to a few × and the engine + Python loop become the limit.
+  per layer). Estimated PPO rate (network only, samples/s; CPU = half the cores here, T4 = free Colab):
+
+  | Network | CPU | T4 | T4 + `torch.compile` |
+  |---|---|---|---|
+  | MLP 2×256 | ~18k | 153k | |
+  | GNN d64 L4 | ~250 | 2.4k | 3.3k |
+  | GNN d128 L4 | | 1.2k | 1.4k |
+  | transformer / hybrid d64 L4 | 60–75 | 0.7–0.9k | |
+  | d128 transformer / hybrid | 17–60 | 0.3–0.5k | |
+
+  Full T4 tables: `benchmarks/results/arch_speed_t4.csv` and `batch_sweep_t4.csv` (local only). A 6M-step
+  diagnostic with GNN d64 L4 is ~30–40 min of network time on a T4 versus ~7 h on this CPU.
+- **Batch size on the T4** (trainer nets, PPO estimate with 4 epochs and the engine included):
+  - MLP 2×256 saturates at ~4096 envs for inference (650k/s) and minibatch 8192 for training (1.1M/s):
+    ~140k samples/s, versus ~82k/s at the diagnostic recipe's 256 envs.
+  - GNN d64 L4 is already saturated at 256 envs and minibatch 1024 (~27k/s inference, ~10k/s training,
+    ~2.3k/s end to end), so batch size doesn't help it. d128 being only 2× slower than d64 suggests memory
+    bandwidth, not FLOPs, is the limit. fp16 autocast gives ~1.5× (3.5k/s); `torch.compile` gave ~1.4×.
+    fp16 needs the masking constant `NEG_INF = -1e9` applied in fp32 (it overflows fp16).
+  - Training memory: GNN ~0.75 GB per 1k minibatch (16k fits in 15 GB, 32k OOMs); the transformer d128 OOMs
+    at 4096-sample chunks.
+  - Free Colab has 2 vCPUs: the engine does ~500k steps/s there up to 4096 envs, then drops (230k/s at 16k).
+  - In `ppo.py`: `--device cuda --amp`. For GNN comparisons keep the diagnostic recipe's batch sizes (they
+    already saturate the T4), so only the network changes. MLP runs on the GPU: `--num-envs 2048 --minibatch 8192`.
 - **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
   `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
 

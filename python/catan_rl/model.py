@@ -17,6 +17,8 @@ NEG_INF = -1e9
 class PolicyNet(nn.Module):
     """MLP torso over the flat observation with a masked policy head and a value head."""
 
+    amp = False  # fp16 autocast in act() on CUDA; set by the trainer, not saved
+
     def __init__(self, hidden: int = 512, layers: int = 3):
         super().__init__()
         self.cfg = {"hidden": hidden, "layers": layers}
@@ -36,21 +38,23 @@ class PolicyNet(nn.Module):
 
     def forward(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         h = self.torso(obs)
-        logits = self.pi(h).masked_fill(~mask, NEG_INF)
-        return logits, self.v(h).squeeze(-1)
+        logits = self.pi(h).float().masked_fill(~mask, NEG_INF)  # fp32: -1e9 overflows fp16
+        return logits, self.v(h).float().squeeze(-1)
 
     @torch.inference_mode()
     def act(self, obs: np.ndarray, mask: np.ndarray, greedy: bool = False):
-        """Batched action selection from numpy arrays. Returns (actions, logp, value) as numpy."""
-        o = torch.from_numpy(obs)
-        m = torch.from_numpy(mask)
-        logits, v = self(o, m)
+        """Batched action selection from numpy arrays on the net's device. Returns (actions, logp, value) as numpy."""
+        dev = next(self.parameters()).device
+        o = torch.from_numpy(obs).to(dev)
+        m = torch.from_numpy(mask).to(dev)
+        with torch.autocast(dev.type, dtype=torch.float16, enabled=self.amp and dev.type == "cuda"):
+            logits, v = self(o, m)
         if greedy:
             a = logits.argmax(-1)
         else:
             a = torch.distributions.Categorical(logits=logits).sample()
         logp = torch.log_softmax(logits, -1).gather(-1, a[:, None]).squeeze(-1)
-        return a.numpy(), logp.numpy(), v.numpy()
+        return a.cpu().numpy(), logp.cpu().numpy(), v.cpu().numpy()
 
 
 class GraphPolicyNet(nn.Module):
@@ -61,6 +65,8 @@ class GraphPolicyNet(nn.Module):
     Vertex embeddings score settlements and cities, edge embeddings roads, hex embeddings the robber,
     and the global token the remaining actions and the value.
     """
+
+    amp = False
 
     def __init__(self, hidden: int = 64, layers: int = 4):
         super().__init__()
@@ -106,7 +112,7 @@ class GraphPolicyNet(nn.Module):
         pv = self.pi_v(x["v"])
         flat = torch.cat([pv[..., 0], pv[..., 1], self.pi_e(x["e"])[..., 0], self.pi_h(x["h"])[..., 0]], 0).T
         logits = torch.cat([flat, self.pi_g(g)], -1)[:, self.perm]
-        return logits.masked_fill(~mask, NEG_INF), self.v(g).squeeze(-1)
+        return logits.float().masked_fill(~mask, NEG_INF), self.v(g).float().squeeze(-1)
 
     act = PolicyNet.act
 
