@@ -120,7 +120,7 @@ The 6M-step diagnostic PPO recipe used for all comparisons (~15 min):
 
 ## Repository and machines
 
-- Remote: private GitHub repo `restachoc/catan` (`origin`, branch `master`). Push over HTTPS; the `gh` login
+- Remote: public GitHub repo `restachoc/catan` (Colab can `git clone https://github.com/restachoc/catan` without credentials) (`origin`, branch `master`). Push over HTTPS; the `gh` login
   (account `restachoc`) is the credential helper, set in this repo's local git config only. SSH won't work:
   this machine's SSH key belongs to a different GitHub account. Push when the owner asks.
 - This machine: 14 cores, 15 GB RAM, AVX2 only, no GPU. The owner has a separate GPU machine that pulls from
