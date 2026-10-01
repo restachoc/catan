@@ -1,6 +1,6 @@
 """Plot evaluation curves of training runs side by side.
 
-    python -m catan_rl.plot_runs diag selfplay [--labels "Mixed + VP" "Self-play"] [--out plots/x.png]
+    python -m catan_rl.plot_runs diag selfplay [--labels "Mixed + VP" "Self-play"] [--slots 1 3] [--out plots/x.png]
 
 Output defaults to plots/<run>_vs_<run>.png, one file per comparison.
 
@@ -19,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 # Reference categorical palette (fixed order, light mode).
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 
 
@@ -38,9 +38,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--labels", nargs="+")
+    ap.add_argument("--slots", nargs="+", type=int, help="palette slot (1-6) per run, so a run keeps its colour across charts")
     ap.add_argument("--out", help="default: plots/<run>_vs_<run>.png")
     args = ap.parse_args()
     labels = args.labels or args.runs
+    colors = [SERIES[k - 1] for k in args.slots] if args.slots else SERIES
 
     plt.rcParams.update({
         "font.family": "sans-serif", "font.size": 11, "text.color": INK, "axes.labelcolor": INK2,
@@ -64,8 +66,8 @@ def main() -> None:
         ends = []
         for i, (d, label) in enumerate(zip(data, labels)):
             x, y = d[0], d[col]
-            ax.plot(x, y, color=SERIES[i], linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=label)
-            ax.plot(x[-1], y[-1], "o", color=SERIES[i], markersize=8, markeredgecolor=SURFACE, markeredgewidth=2)
+            ax.plot(x, y, color=colors[i], linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=label)
+            ax.plot(x[-1], y[-1], "o", color=colors[i], markersize=8, markeredgecolor=SURFACE, markeredgewidth=2)
             ends.append((y[-1], x[-1]))
         # End-value labels, spread vertically so converging lines don't collide; leader lines keep the link.
         top = 60 if unit == "%" else 10.5

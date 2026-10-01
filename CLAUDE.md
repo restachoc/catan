@@ -47,7 +47,7 @@ The bot is built in versions of increasing difficulty:
 | Version | Board | Trading | Status |
 |---|---|---|---|
 | v1 | fixed beginner board | none (bank/port only) | **current**: PPO diagnostic run `diag` beats the heuristic bot 43% of the time (chance = 25%); long run not started |
-| v2 | random boards | none | engine supports `random_board`; the flat MLP fails here even when trained on random boards (runs 3 and 4 in EXPERIMENTS.md), so it needs a board-structured network |
+| v2 | random boards | none | the flat MLP fails here (runs 3 and 4); the GNN (`--arch gnn`, run 5) reaches 8.7% after 6M steps on a Colab T4, still below chance; next: longer/bigger GNN runs |
 | v3 | either | bots accept/reject the human's offers | not started |
 | v4 | either | bots propose structured trades | not started |
 

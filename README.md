@@ -1,6 +1,7 @@
 # Catan RL
 
-A fast Catan rules engine in Rust, a browser UI to play against bots, and PPO self-play training.
+A fast Catan rules engine in Rust, a browser UI to play against bots, and PPO self-play training with a
+board-structured graph network (GNN) that generalises across board layouts.
 
 ```
 engine/catan-core   rules engine (Rust): bitboard state, flat 253-action space, observations, bots
@@ -33,6 +34,7 @@ Deep link: `/?replay=<name>&step=<n>`. Keys: space/r rolls, Enter ends the turn,
 
 ```bash
 nice -n 10 .venv/bin/python -m catan_rl.ppo --name v1          # PPO; defaults: 512 envs, 3x512 MLP, 1e9 steps
+nice -n 10 .venv/bin/python -m catan_rl.ppo --name g1 --arch gnn --hidden 64 --layers 4 --random-board --device cuda --amp
 nice -n 10 .venv/bin/python -m catan_rl.ppo --name v1 --resume runs/v1/latest.pt
 nice -n 10 .venv/bin/python -m catan_rl.az --name az1          # AlphaZero-style MCTS self-play
 .venv/bin/python -m catan_rl.evaluate runs/v1/best.pt --games 2000 [--random-board] [--replays 5]
@@ -44,6 +46,13 @@ Analysis (charts go to `plots/`):
 .venv/bin/python -m catan_rl.plot_runs <run> <run> ...         # training curves side by side
 .venv/bin/python -m catan_rl.generalization <run> ...          # fixed vs random boards
 .venv/bin/python -m catan_rl.strategy <run>                    # strategy mix over training
+```
+
+GPU runs on Colab take one notebook cell (the script builds the engine, trains and zips `runs/<run>/`):
+
+```
+!git clone -q https://github.com/restachoc/catan 2>/dev/null; bash catan/scripts/colab.sh ppo --name <run> --device cuda --amp [flags]
+from google.colab import files; files.download("/content/<run>.zip")
 ```
 
 Metrics go to `runs/<name>/metrics.csv`. `eval_wr_heuristic` is the win rate with the policy in one seat
@@ -61,6 +70,6 @@ cd engine && cargo bench -p catan-core                          # engine through
 ## Roadmap
 
 - v1: fixed beginner board, no player trading (current)
-- v2: random boards (`--random-board`, already supported by the engine)
+- v2: random boards (`--random-board`; the GNN is the first network that generalises across layouts)
 - v3: bots accept or reject your trade offers
 - v4: bots propose trades
