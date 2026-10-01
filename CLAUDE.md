@@ -154,6 +154,9 @@ tab idles too long, so keep single jobs to a few hours. The job runs inside the 
 moves to the background after 2 min and notifies on completion. Don't poll. Measured: GNN d64 L4 with `--amp` and
 the diagnostic recipe trains at ~3.3–3.7k samples/s before the league starts and ~2.7–3.2k/s after (6M steps
 ≈ 35 min, plus ~2 min setup).
+End-to-end d64 vs d128 (L4, `--amp`, CUDA-graph rollouts, same recipe, 2026-10-01): d64 3.5k / 3.0k samples/s
+(before / with league), d128 1.8k / 1.5k, so d128 is ~1.95× slower. The PPO update doubles (8.3 → 16.4 s per
+iteration) and rollout steps take ~1.5× as long (8.8 → 13.4 ms).
 
 ## Architecture invariants (don't break these)
 
