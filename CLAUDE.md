@@ -96,6 +96,7 @@ python/catan_rl/
   evaluate.py             evaluate() vs bots or checkpoints (--random-board); replay export
   strategy.py             strategy mix of a run's snapshots in self-play -> plots/<run>_strategy.png
   tracking.py             optional W&B logging (--wandb): metric grouping, stable run id for --resume
+  wandb_backfill.py       upload runs trained without --wandb to W&B under the same metric names
   eval_curve.py           every snapshot of a run on the same eval games -> runs/<run>/eval_curve.csv (plot_runs uses it)
   plot_runs.py            eval curves of several runs side by side
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
@@ -191,6 +192,8 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
 - Never echo the environment or `userdata` values. The W&B entity isn't hard-coded (`WANDB_ENTITY` or the
   account default). Projects are private (or team-only) unless the owner makes them public in W&B.
 - Test without a key or network: `WANDB_MODE=offline`.
+- Runs trained without `--wandb` are uploaded afterwards with `python -m catan_rl.wandb_backfill <run> ...`
+  (`--replace` redoes one, e.g. after its `strategy.csv` grows). Runs 1–5 and az1 are backfilled.
 
 ## Architecture invariants (don't break these)
 

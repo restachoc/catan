@@ -10,7 +10,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   ([finding](../findings/gnn-generalises-across-boards.md)). GNN + attention to global/seat tokens (the "hybrid")
   stays the upgrade path if the global token proves a bottleneck; transformer and hybrid are benchmark-only.
 - **Strategy analysis of run 5** (`strategy.py gnn-randboard`) is running locally at nice 10; when done, look at
-  `plots/gnn-randboard_strategy.png` and add run 5 to [bot-strategies](../findings/bot-strategies.md).
+  `plots/gnn-randboard_strategy.png`, add run 5 to [bot-strategies](../findings/bot-strategies.md), and re-upload
+  it: `python -m catan_rl.wandb_backfill gnn-randboard --replace` (its W&B strategy data is partial).
 - **Next experiments, proposed to the owner:**
   1. GNN d64 on the fixed board, 6M steps (~40 min): if it nears run 1's 43%, the architecture is adequate.
   2. Run 5 continued or redone at 20–30M steps with stretched LR and VP-shaping schedules. Resuming needs
