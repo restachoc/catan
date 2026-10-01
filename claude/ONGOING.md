@@ -5,27 +5,24 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Board-structured network (chosen direction).** Options scored in the ideation phase: GNN over hexes,
-  vertices and edges with per-location policy heads 9/10 (recommended start), GNN + attention to a few
-  global/seat tokens 8.5/10 (upgrade path), full transformer with graph-distance bias 7.5/10 (cost),
-  hex-grid CNN 6/10, per-action scoring from hand-made features 6.5/10, MLP + symmetry augmentation 3/10
-  (worth adding on top of the GNN). All three graph prototypes are in `benchmarks/arch_speed.py`.
-- **The GNN is in the trainer** (`GraphPolicyNet`, `ppo --arch gnn`), smoke-tested only (20k steps, ~220
-  samples/s on 6 CPU threads). Transformer and hybrid remain benchmark-only.
-- **GPU benchmark done** (free Colab T4, 2026-10-01; numbers in CLAUDE.md "Networks"). The GNN d64 L4 is the
-  only board network fast enough to iterate with (~3.3k samples/s compiled). Proposed size: d64 L4, owner to confirm.
-- GPU training works end to end on Colab (`scripts/colab.sh`, see CLAUDE.md "Remote GPU runs").
-- **Run 5 (`gnn-randboard`) done**: GNN on random boards, 8.7% / 5.7 VP vs run 4's 0.5% / 3.7 (EXPERIMENTS.md).
-  Next options for the owner: continue it (`--resume runs/gnn-randboard/latest.pt --total-steps 20e6`, needs
-  the checkpoint uploaded or the run continued in one Colab session), or a bigger GNN (d128). The league
-  slowdown is fixed (CUDA-graph actors, ~+40% throughput with the league running).
-- The colab-mcp tool call times out after 30 min of silence (the cell keeps running). Long runs are tracked by
-  watching `~/Downloads/<run>.zip` instead. Raising the per-server MCP `timeout` would avoid it (owner's config).
+- **Board network: the GNN is chosen and trained once.** Run 5 (`gnn-randboard`, d64 L4, 6M steps on a Colab T4)
+  reaches 8.7% on random boards vs the MLP's 0.5%, still rising
+  ([finding](../findings/gnn-generalises-across-boards.md)). GNN + attention to global/seat tokens (the "hybrid")
+  stays the upgrade path if the global token proves a bottleneck; transformer and hybrid are benchmark-only.
+- **Strategy analysis of run 5** (`strategy.py gnn-randboard`) is running locally at nice 10; when done, look at
+  `plots/gnn-randboard_strategy.png` and add run 5 to [bot-strategies](../findings/bot-strategies.md).
+- **Next experiments, proposed to the owner:**
+  1. GNN d64 on the fixed board, 6M steps (~40 min): if it nears run 1's 43%, the architecture is adequate.
+  2. Run 5 continued or redone at 20–30M steps with stretched LR and VP-shaping schedules. Resuming needs
+     `runs/gnn-randboard/latest.pt` on Colab (runs aren't in git), so redoing in one session is simpler.
+  3. d128 (~2× slower, ~70 min per 6M) or 6 layers (~1.5×) only if both stall.
+- Old replays in `replays/` (8 files) predate the chance-stream split and no longer reproduce; ask the owner
+  whether to delete them.
 
 ## Open decisions (waiting on the owner)
 
 - **Other directions, parked while the network is built:**
-  1. **AlphaZero fixes** (see EXPERIMENTS.md "AlphaZero"): position subsampling, mixed z/q value target,
+  1. **AlphaZero fixes** ([finding](../findings/alphazero-value-memorisation.md)): position subsampling, mixed z/q value target,
      value-head regularisation, held-out value metric. Then a second AZ run (ideally with the new network).
   2. **Pure self-play with VP shaping**, to separate the opponent effect from the reward effect in run 2.
   3. **Continue run 2** with `--resume runs/selfplay/latest.pt --total-steps 30e6` to test whether it's

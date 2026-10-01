@@ -11,10 +11,26 @@ More Claude-facing notes live in `claude/*.md`. Every one of them must be linked
 | File | Purpose |
 |---|---|
 | [claude/ONGOING.md](claude/ONGOING.md) | **Read first after a context clear.** What's in flight, open decisions, next steps. Update it as work progresses; remove items when done. |
-| [claude/EXPERIMENTS.md](claude/EXPERIMENTS.md) | Training runs so far, their results, and the lessons that still hold. |
+| [claude/EXPERIMENTS.md](claude/EXPERIMENTS.md) | Table of training runs and their final numbers, linking to the findings. |
 
-**If you find a `.md` file in `claude/` (or elsewhere in the repo, outside `.venv/` and `engine/target/`)
-that isn't linked from this file or the README, warn the owner.** Either link it or delete it.
+**Findings** live in `findings/`, one file per finding (date, setup, result, implication). Measurements and
+conclusions go there, not here; this file keeps how things work and how to work. Every finding is listed:
+
+| Finding | In one line |
+|---|---|
+| [mlp-memorises-board-layouts](findings/mlp-memorises-board-layouts.md) | The flat MLP learns one layout and fails on random boards (0.5–1.6%). |
+| [gnn-generalises-across-boards](findings/gnn-generalises-across-boards.md) | GNN d64 reaches 8.7% on random boards (MLP 0.5%), still rising at 6M steps. |
+| [reward-shaping-and-opponents](findings/reward-shaping-and-opponents.md) | Mixed opponents + VP shaping learn far faster than pure self-play with win/loss (confounded). |
+| [bot-strategies](findings/bot-strategies.md) | Bots favour dev cards and barely build extra settlements. |
+| [alphazero-value-memorisation](findings/alphazero-value-memorisation.md) | az1 failed: the value net memorised games; fixes listed. |
+| [board-network-speed](findings/board-network-speed.md) | Only the small GNN is fast enough, on a GPU; d128 costs ~2× d64. |
+| [gpu-batch-size-and-precision](findings/gpu-batch-size-and-precision.md) | On a T4, batch size helps the MLP, fp16 helps the GNN. |
+| [rollout-launch-overhead](findings/rollout-launch-overhead.md) | Eager GNN calls cost ~8 ms each; CUDA graphs made league rollouts 2–3× faster. |
+| [evaluation-noise](findings/evaluation-noise.md) | Evals used different games each time; now fixed games, fully reproducible. |
+| [cpu-throughput-and-sharing](findings/cpu-throughput-and-sharing.md) | Throughput on this CPU, and how two heavy jobs thrash. |
+
+**If you find a `.md` file in `claude/`, `findings/` (or elsewhere in the repo, outside `.venv/` and
+`engine/target/`) that isn't linked from this file or the README, warn the owner.** Either link it or delete it.
 
 ## Working with the owner
 
@@ -91,6 +107,7 @@ web/static/               index.html, style.css, board.js (canvas renderer), ui.
 pyproject.toml            maturin config (python-source = python, module = catan_rl._engine)
 runs/, replays/, plots/   training output / saved games / charts (all gitignored)
 claude/                   Claude notes (see "Claude files" above)
+findings/                 one .md per finding (listed under "Claude files")
 ```
 
 ## Commands
@@ -99,7 +116,7 @@ Always use the venv (`.venv/bin/...`). Rust is installed via rustup; run `source
 
 ```bash
 .venv/bin/maturin develop --release                       # REQUIRED after any Rust change (see gotchas)
-cd engine && cargo test -p catan-core --release           # 18 tests, ~1 s
+cd engine && cargo test -p catan-core --release           # 19 tests, ~1 s
 cd engine && cargo test -p catan-core --release -- --ignored   # 100k-game invariant stress test, ~20 s
 cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python -m catan_rl.smoke                        # bindings end to end
@@ -151,12 +168,9 @@ switch to T4 if there's no GPU.
 
 Notes: free runtimes have 2 vCPUs, 12 GB RAM, a T4 with 15 GB, and disconnect after ~12 h or when the browser
 tab idles too long, so keep single jobs to a few hours. The job runs inside the cell; `run_code_cell`
-moves to the background after 2 min and notifies on completion. Don't poll. Measured: GNN d64 L4 with `--amp` and
-the diagnostic recipe trains at ~3.3–3.7k samples/s before the league starts and ~2.7–3.2k/s after (6M steps
-≈ 35 min, plus ~2 min setup).
-End-to-end d64 vs d128 (L4, `--amp`, CUDA-graph rollouts, same recipe, 2026-10-01): d64 3.5k / 3.0k samples/s
-(before / with league), d128 1.8k / 1.5k, so d128 is ~1.95× slower. The PPO update doubles (8.3 → 16.4 s per
-iteration) and rollout steps take ~1.5× as long (8.8 → 13.4 ms).
+moves to the background after 2 min and notifies on completion. Don't poll. The tool call itself gives up after
+30 min of silence while the cell keeps running; for long jobs, watch for `~/Downloads/<run>.zip` instead.
+Speeds: [board-network-speed](findings/board-network-speed.md) (GNN d64 6M steps ≈ 35 min, d128 ≈ 70 min).
 
 ## Architecture invariants (don't break these)
 
@@ -212,38 +226,18 @@ iteration) and rollout steps take ~1.5× as long (8.8 → 13.4 ms).
 - Both trainers default to a flat MLP: 1292 → [Linear → LayerNorm → ReLU] × layers → heads. All comparison runs use
   2×256 (~0.46M params). PolicyNet (PPO) has a scalar value head; AZNet has a 4-way value head (win
   probability per seat, relative to the player to move).
-- **Known limitation:** the MLP has no notion of board structure (no weight sharing between vertices/hexes), so
-  it memorises one layout and does not transfer to random boards.
-- `GraphPolicyNet` (`ppo --arch gnn --hidden <d> --layers <rounds>`) is the replacement: typed message passing
+- The MLP has no weight sharing between locations, so it memorises one layout
+  ([finding](findings/mlp-memorises-board-layouts.md)).
+- `GraphPolicyNet` (`ppo --arch gnn --hidden <d> --layers <rounds>`) is the board network: typed message passing
   over hexes, vertices and edges plus a global token, shared weights, no positional embeddings. Vertex/edge/hex
   embeddings score settle+city/road/robber; the global token scores the rest and the value. Each node also gets
-  its own legal-action bits from the mask and static coast features. Not trained beyond a smoke test yet.
-  Checkpoints store `cfg.kind` (`mlp` implied when absent, `gnn`, `az`); `model.load` dispatches on it.
-- **Board networks are too slow for this CPU.** They cost 20–30× the MLP's FLOPs per sample (145 nodes × d²
-  per layer). Estimated PPO rate (network only, samples/s; CPU = half the cores here, T4 = free Colab):
-
-  | Network | CPU | T4 | T4 + `torch.compile` |
-  |---|---|---|---|
-  | MLP 2×256 | ~18k | 153k | |
-  | GNN d64 L4 | ~250 | 2.4k | 3.3k |
-  | GNN d128 L4 | | 1.2k | 1.4k |
-  | transformer / hybrid d64 L4 | 60–75 | 0.7–0.9k | |
-  | d128 transformer / hybrid | 17–60 | 0.3–0.5k | |
-
-  Full T4 tables: `benchmarks/results/arch_speed_t4.csv` and `batch_sweep_t4.csv` (local only). A 6M-step
-  diagnostic with GNN d64 L4 is ~30–40 min of network time on a T4 versus ~7 h on this CPU.
-- **Batch size on the T4** (trainer nets, PPO estimate with 4 epochs and the engine included):
-  - MLP 2×256 saturates at ~4096 envs for inference (650k/s) and minibatch 8192 for training (1.1M/s):
-    ~140k samples/s, versus ~82k/s at the diagnostic recipe's 256 envs.
-  - GNN d64 L4 is already saturated at 256 envs and minibatch 1024 (~27k/s inference, ~10k/s training,
-    ~2.3k/s end to end), so batch size doesn't help it. d128 being only 2× slower than d64 suggests memory
-    bandwidth, not FLOPs, is the limit. fp16 autocast gives ~1.5× (3.5k/s); `torch.compile` gave ~1.4×.
-    fp16 needs the masking constant `NEG_INF = -1e9` applied in fp32 (it overflows fp16).
-  - Training memory: GNN ~0.75 GB per 1k minibatch (16k fits in 15 GB, 32k OOMs); the transformer d128 OOMs
-    at 4096-sample chunks.
-  - Free Colab has 2 vCPUs: the engine does ~500k steps/s there up to 4096 envs, then drops (230k/s at 16k).
-  - In `ppo.py`: `--device cuda --amp`. For GNN comparisons keep the diagnostic recipe's batch sizes (they
-    already saturate the T4), so only the network changes. MLP runs on the GPU: `--num-envs 2048 --minibatch 8192`.
+  its own legal-action bits from the mask and static coast features. Checkpoints store `cfg.kind` (`mlp`
+  implied when absent, `gnn`, `az`); `model.load` dispatches on it.
+- Board networks are only practical on a GPU (~7 h vs ~35 min for a 6M-step diagnostic). Train them on Colab
+  with `--device cuda --amp` and the diagnostic recipe's batch sizes; MLP runs on a GPU use `--num-envs 2048
+  --minibatch 8192`. Numbers: [board-network-speed](findings/board-network-speed.md),
+  [gpu-batch-size-and-precision](findings/gpu-batch-size-and-precision.md).
+- Policy logits are masked in fp32 (`NEG_INF = -1e9` overflows fp16).
 - **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
   `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
 
@@ -258,8 +252,8 @@ iteration) and rollout steps take ~1.5× as long (8.8 → 13.4 ms).
   play the other league seats, refreshed every `snapshot_every` iterations, each env switching at its next game
   end. Opponent moves aren't training data, so samples per iteration drop ~37% once the league starts.
 - On the GPU, rollout actors (learner and opponents) are `GraphedPolicy` wrappers: CUDA-graph replay padded to
-  bucket sizes. An eager GNN `act()` costs ~8 ms at any batch size (host-side launches), so four calls per step
-  made the league rollout 3–4× slower. Graphs read the live weights; in-place optimizer steps need no recapture.
+  bucket sizes ([why](findings/rollout-launch-overhead.md)). Graphs read the live weights, so in-place optimizer
+  steps need no recapture; replacing a parameter tensor (not in place) would silently break them.
 - Samples are tagged (env, seat). GAE runs per sequence and bootstraps from the same seat's next decision.
   Unfinished tails are **carried into the next rollout** rather than bootstrapped. League seat assignment
   only changes at game end; changing it mid-game would orphan carried samples.
@@ -271,9 +265,7 @@ iteration) and rollout steps take ~1.5× as long (8.8 → 13.4 ms).
   mean noisier updates, not smaller ones. Raising the learning rate is not the fix.
 - Outputs go to `runs/<name>/`: `metrics.csv`, `latest.pt` (includes optimizer state, used by `--resume`),
   `best.pt` (best eval win rate vs heuristic), `pool/`, and `config.json`.
-- Throughput on this machine (14 cores, no GPU): ~6.5–7k samples/s for 2×256 with league inference,
-  ~10k/s for pure self-play, ~7.5k/s for 3×512 before league overhead. The network is the bottleneck; the
-  engine does 13M raw steps/s per core.
+- On this CPU the network, not the engine, is the bottleneck ([numbers](findings/cpu-throughput-and-sharing.md)).
 
 ## AlphaZero (az.py, mcts.rs)
 
@@ -287,21 +279,17 @@ iteration) and rollout steps take ~1.5× as long (8.8 → 13.4 ms).
   search. Resource hands are treated as known (approximates card counting).
 - Value targets are the winner one-hot (draw = uniform). Samples carry the true legal mask for the policy
   loss (masking to visited moves only would leave unvisited legal moves unconstrained).
-- **Value memorisation is the main failure mode:** one game yields ~150–350 samples with the same outcome,
-  and the MLP can recognise a game from its board, so it learns "this game → seat 2 wins". Always measure the
-  value loss on fresh held-out games (uniform guessing = ln 4 ≈ 1.39); the training loss is meaningless.
-  See EXPERIMENTS.md for the planned fixes.
-- Throughput on this CPU (64 sims, 256 games): ~500 searched moves/s with 2×256, ~300/s with 3×512;
-  about 60% of the time is the network, 40% the Rust search.
+- **Always measure the value loss on fresh held-out games** (uniform guessing = ln 4 ≈ 1.39); the training
+  loss is meaningless because the value net memorises games
+  ([finding](findings/alphazero-value-memorisation.md), with the planned fixes).
 
 ## CPU sharing
 
-- Every heavy job (training, evaluation, strategy analysis) spawns ~14 torch threads plus ~14 rayon
-  threads. Two such jobs at full width thrash: training fell from 7.3k to 1.2k samples/s while a strategy
-  analysis ran next to it.
-- Run long jobs under `nice -n 10` (or `renice -n 10 -p <pid>` for a running one; no root needed). When
-  running a second job alongside, cap it: `RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4` and
-  `torch.set_num_threads(4)`. That combination slowed a running training by only ~10%.
+- Every heavy job (training, evaluation, strategy analysis) spawns ~14 torch plus ~14 rayon threads; two at
+  full width thrash ([numbers](findings/cpu-throughput-and-sharing.md)).
+- Run long jobs under `nice -n 10` (or `renice -n 10 -p <pid>` for a running one; no root needed). Cap a second
+  job: `RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4` and `torch.set_num_threads(4)`. To run something urgent, pause a
+  cached analysis job with `kill -STOP <pid>` and resume it with `kill -CONT <pid>`.
 
 ## Gotchas
 
@@ -323,14 +311,14 @@ iteration) and rollout steps take ~1.5× as long (8.8 → 13.4 ms).
   the end-of-game stats of each env's last finished game.
 - Bot seats set with `VecEnv.set_seats` act inside Rust during `step`/`reset`, so Python only sees states
   where an `"external"` seat acts.
-- `evaluate()` is fully determined by its seed (engine streams plus a forked, seeded torch RNG), and PPO evaluates
-  every checkpoint on the same games (seed 10000). Different game sets still differ by ±4 pp at 400 games (one
-  checkpoint: 37.5% vs 46% on two seeds), so use 2000 games for claims. Runs before 2026-10-01 used a new game
-  set per evaluation; their `metrics.csv` curves are noisier than `eval_curve.csv`.
+- `evaluate()` is fully determined by its seed, and PPO evaluates every checkpoint on the same games (seed
+  10000). Use 2000 games for claims ([why](findings/evaluation-noise.md)). Runs before 2026-10-01 have noisier
+  `metrics.csv` curves; use `eval_curve.py` + `plot_runs --fixed` for them.
 - Replays and seeds from before the chance-stream split (2026-10-01) don't reproduce: the same seed now gives
   different dice. Checkpoints are unaffected.
-- No Node.js on this machine, so the dataviz palette validator can't run; the charts use slots 1–4 of its
-  documented reference palette plus magenta (slot 5) and a neutral grey.
+- No Node.js on this machine, so the dataviz palette validator can't run; the charts use slots 1–6 of its
+  documented reference palette in order, plus a neutral grey. Keep a run's colour across charts with
+  `plot_runs --slots` (run 1 blue, run 4 orange, run 2 aqua, run 3 yellow, az1 magenta, run 5 green).
 
 ## Verifying changes
 

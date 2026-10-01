@@ -1,10 +1,11 @@
 # Experiments
 
-Training runs so far, what they showed, and the lessons that still hold. Curated, not a log: when a
-lesson is overturned, rewrite it. Linked from [CLAUDE.md](../CLAUDE.md).
+Training runs so far and their final numbers. What they showed lives in `findings/` (one file per finding).
+Linked from [CLAUDE.md](../CLAUDE.md).
 
 All runs: 4 players, 2×256 MLP unless noted, evaluated with the policy in one seat vs 3 heuristic bots (chance = 25%).
-Charts: `plots/all_runs.png` (training curves), `plots/generalization.png` (fixed vs random boards),
+Charts: `plots/all_runs_fixed.png` (training curves, every snapshot on the same games; `all_runs.png` is
+the noisier in-training version), `plots/generalization.png` (fixed vs random boards),
 `plots/<run>_strategy.png` (strategy mix over training).
 
 ## Runs
@@ -22,56 +23,11 @@ Charts: `plots/all_runs.png` (training curves), `plots/generalization.png` (fixe
 
 az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, no upward trend.
 
-## Lessons
+## Findings from these runs
 
-**Reward and opponents (PPO)**
-- Mixed opponents + VP shaping (run 1) learns fast: win rate passes 25% at ~3M steps and reaches ~43% by 6M.
-- Pure self-play with win/loss only (run 2) learns slowly. VP vs the heuristic bot rises 2.5 → 4.5 by ~3M
-  steps, then stays flat. The run changed two variables at once (opponents *and* reward), so which one
-  matters is still open; the clean test is pure self-play *with* VP shaping.
-- The self-play game length fell from ~840 to ~415 steps during run 2, so its bots did get more efficient
-  against each other; that improvement barely transferred to beating the heuristic bot.
-- Why sparse reward hurts: four equally weak players plus dice means the winner is mostly luck, so each
-  update's direction is noisy (advantages are normalised, so the update size is unchanged).
-
-**Board generalisation (the big one)**
-- The flat MLP does not generalise: run 1 falls from 43.1% to 0.8% on random boards.
-- It also cannot *learn* random boards in 6M steps: run 4 (run 1's recipe on random boards) reaches only
-  0.5% and ~3.5 VP. Run 3 (self-play on random boards) is similarly weak.
-- Diagnosis: the MLP has separate weights for every vertex/hex, so it memorises layouts. This motivates a
-  board-structured network (GNN/transformer over hexes, vertices and edges with shared weights).
-- The GNN fixes most of it (run 5 vs run 4, same recipe): on random boards 8.7% vs 0.5% win rate and 5.7 vs
-  3.7 VP. It also transfers to the beginner board it never trained on (11.2%, 6.4 VP). Two things changed
-  besides the network: GPU instead of CPU and fp16 autocast; neither should change what is learned.
-- Run 5 is still well below chance (25%) and below run 1's 43% on its single board. VP rose fast to ~5 by 2M
-  steps, then slowly to ~5.4; the learning rate had decayed by then, so the plateau is unproven (chart:
-  `plots/gnn_vs_mlp_randboard.png`). Next: continue it with `--resume`, or a longer/larger run.
-- Throughput on the T4 in run 5: ~3.3k samples/s while the league pool was empty, ~2.0–2.2k/s once league
-  snapshots played; 6M steps took ~45 min. Since then rollouts use CUDA graphs: ~2.7–3.2k/s with the league.
-
-**Strategies (from `strategy.py`)**
-- Classification by where resource cards were spent after setup (road 2, extra settlement 4, city 5,
-  dev card 3): road builder ≥60% on expansion, OWS ≤40% (split into dev cards vs cities), balanced in between.
-- In every run, near-random early play spends ~45–50% on roads; trained bots move to ~30% roads, and
-  "OWS: dev cards" becomes the largest group (~40% of players, 44–49% of winners on the fixed board).
-- Cities without heavy dev-card buying almost never happens (1–2%). Extra settlements get only 11–15% of
-  spending: the bots barely expand beyond their two starting settlements, a clear weakness.
-- Random-board self-play ends with a more mixed population (~40% balanced, ~40% OWS-dev, ~20% road
-  builders among winners).
-
-**AlphaZero (az1)**
-- It failed because the value network memorised games: training value loss 0.05–0.12, but on 60 fresh
-  held-out games the loss was 2.24 (uniform guessing = 1.39) with 82% average confidence. The search is
-  then guided by confidently wrong values and cannot improve the policy.
-- Cause: ~350 samples per game share one outcome, a 200k replay holds only ~500 games, and the MLP can
-  tell games apart by their board.
-- Planned fixes (not yet implemented): keep ~1 in 8 positions per game; value target = 50% game result +
-  50% search root value; label smoothing / stronger weight decay on the value head; held-out value loss
-  as a standard metric. A board-structured network should also memorise less.
-- Cost: ~500 searched moves/s (64 network evaluations each) vs ~7k decisions/s for PPO, so az1 saw
-  only ~7.5k games.
-
-**Compute**
-- 400-game evaluations are noisy (±3–5 pp); 2000 games for final numbers.
-- The PPO learning rate decays to ~0 at `total_steps`; the final third of a 6M run is nearly frozen, so a
-  "plateau" there doesn't prove the method has stalled. Continue with `--resume` to check.
+- [mlp-memorises-board-layouts](../findings/mlp-memorises-board-layouts.md): runs 1, 3, 4.
+- [gnn-generalises-across-boards](../findings/gnn-generalises-across-boards.md): run 5 vs run 4.
+- [reward-shaping-and-opponents](../findings/reward-shaping-and-opponents.md): run 1 vs run 2.
+- [bot-strategies](../findings/bot-strategies.md): strategy mix of runs 1–3.
+- [alphazero-value-memorisation](../findings/alphazero-value-memorisation.md): az1.
+- [evaluation-noise](../findings/evaluation-noise.md): why the in-training curves are bumpy; fixed-game curves.
