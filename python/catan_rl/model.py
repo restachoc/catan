@@ -117,41 +117,54 @@ class GraphPolicyNet(nn.Module):
     act = PolicyNet.act
 
 
-class PolicyStack:
-    """Several policies of one architecture evaluated in a single batched call (vmap over stacked weights).
+class GraphedPolicy:
+    """CUDA-graph replay of a policy's forward for rollouts, with `act()` like PolicyNet.
 
-    The PPO rollout acts for the learner and every league opponent once per env step. Each forward has a
-    fixed cost (Python dispatch and kernel launches for the GNN's many small ops) that dominates the small
-    league batches, so one call for all policies replaces one call per policy. The weights are copied at
-    construction: rebuild the stack after the learner is updated.
+    An eager GNN forward costs ~8 ms on a T4 whatever the batch (8 to 256 rows): the host launches ~350 small
+    kernels per call, half of them autocast weight casts. Replaying a captured graph is one launch. Batches
+    are padded to a bucket size, one graph per bucket, captured on first use. The graph reads the live
+    weights, so in-place optimizer updates are picked up without recapturing.
     """
 
-    def __init__(self, nets: list[nn.Module]):
-        from torch.func import functional_call, stack_module_state
+    BUCKETS = (32, 64, 128, 256, 512, 1024, 2048, 4096)
 
-        base = nets[0]
-        params, _ = stack_module_state(nets)
-        self.params = {k: v.detach() for k, v in params.items()}
-        buffers = dict(base.named_buffers())  # identical across nets (graph structure), so not stacked
-        self.amp, self.dev = base.amp, next(base.parameters()).device
-        self.fn = torch.vmap(lambda p, o, m: functional_call(base, (p, buffers), (o, m)))
+    def __init__(self, net: nn.Module):
+        self.net = net
+        self.graphs: dict[int, tuple] = {}
+
+    def _capture(self, B: int) -> None:
+        o = torch.zeros(B, OBS_SIZE, device="cuda")
+        m = torch.zeros(B, N_ACTIONS, dtype=torch.bool, device="cuda")
+        m[:, 0] = True  # padding rows need one legal action
+        amp = torch.autocast("cuda", dtype=torch.float16, enabled=self.net.amp)
+        side = torch.cuda.Stream()
+        side.wait_stream(torch.cuda.current_stream())
+        with torch.cuda.stream(side), amp:
+            for _ in range(3):  # warm-up on a side stream, as required before capture
+                self.net(o, m)
+        torch.cuda.current_stream().wait_stream(side)
+        g = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(g), amp:
+            out = self.net(o, m)
+        self.graphs[B] = (g, o, m, out)
 
     @torch.inference_mode()
-    def act(self, obs: list[np.ndarray], mask: list[np.ndarray]) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """obs[k], mask[k]: the batch for policy k (may be empty). Returns (actions, logp, value) per policy."""
-        sizes = [len(o) for o in obs]
-        B = max(max(sizes), 1)
-        O = np.zeros((len(obs), B, OBS_SIZE), np.float32)
-        M = np.zeros((len(obs), B, N_ACTIONS), np.bool_)
-        M[:, :, 0] = True  # padding rows need one legal action
-        for k, n in enumerate(sizes):
-            O[k, :n], M[k, :n] = obs[k], mask[k]
-        with torch.autocast(self.dev.type, dtype=torch.float16, enabled=self.amp and self.dev.type == "cuda"):
-            logits, v = self.fn(self.params, torch.from_numpy(O).to(self.dev), torch.from_numpy(M).to(self.dev))
-        a = torch.distributions.Categorical(logits=logits).sample()
-        logp = torch.log_softmax(logits, -1).gather(-1, a[..., None]).squeeze(-1)
-        out = torch.stack([a.float(), logp, v]).cpu().numpy()  # one device sync for everything
-        return [(out[0, k, :n].astype(np.int64), out[1, k, :n], out[2, k, :n]) for k, n in enumerate(sizes)]
+    def act(self, obs: np.ndarray, mask: np.ndarray, greedy: bool = False):
+        n = len(obs)
+        B = next((b for b in self.BUCKETS if b >= n), None)
+        if B is None:
+            return self.net.act(obs, mask, greedy)
+        if B not in self.graphs:
+            self._capture(B)
+        g, o, m, (logits, v) = self.graphs[B]
+        o[:n].copy_(torch.from_numpy(obs), non_blocking=True)
+        m[:n].copy_(torch.from_numpy(mask), non_blocking=True)
+        g.replay()
+        lg = logits[:n]
+        a = lg.argmax(-1) if greedy else torch.distributions.Categorical(logits=lg).sample()
+        logp = torch.log_softmax(lg, -1).gather(-1, a[:, None]).squeeze(-1)
+        out = torch.stack([a.float(), logp, v[:n]]).cpu().numpy()  # one device sync
+        return out[0].astype(np.int64), out[1], out[2]
 
 
 class AZNet(nn.Module):

@@ -32,7 +32,7 @@ import torch
 
 from catan_rl import N_ACTIONS, OBS_SIZE, VecEnv
 from catan_rl.evaluate import evaluate
-from catan_rl.model import PolicyNet, PolicyStack, load, make_policy, save
+from catan_rl.model import GraphedPolicy, PolicyNet, load, make_policy, save
 
 RUST_BOT = -1
 LEARNER = 0
@@ -168,6 +168,8 @@ class Trainer:
         self.net.amp = self.amp
         self.opt = torch.optim.Adam(self.net.parameters(), lr=cfg.lr, eps=1e-5)
         self.scaler = torch.amp.GradScaler(self.dev.type, enabled=self.amp)
+        # rollout actors: CUDA-graph replay on the GPU (per-call launch overhead dominates there)
+        self.actor_net = GraphedPolicy(self.net) if self.dev.type == "cuda" else self.net
         self.steps = 0
         self.iter = 0
         self.best_wr = -1.0
@@ -191,7 +193,7 @@ class Trainer:
                 self.env.set_seats(i, ["external" if s == seat else "heuristic" for s in range(4)])
                 self.ctrl[i] = RUST_BOT
                 self.ctrl[i, seat] = LEARNER
-        self.opponents: list[PolicyNet] = []  # active league opponents; ctrl id k -> opponents[k-1]
+        self.opponents: list = []  # active league opponents (actors); ctrl id k -> opponents[k-1]
         self.league = np.arange(self.n_heur + self.n_self, N)
         for i in self.league:
             self.assign_league(i)
@@ -236,9 +238,10 @@ class Trainer:
         # learner seat; opponent ids stay valid because the active set never shrinks.
         self.opponents = [self.on_device(load(p)) for p in picks]
 
-    def on_device(self, net: PolicyNet) -> PolicyNet:
+    def on_device(self, net: PolicyNet):
         net.amp = self.amp
-        return net.to(self.dev)
+        net = net.to(self.dev)
+        return GraphedPolicy(net) if self.dev.type == "cuda" else net
 
     def snapshot(self) -> None:
         save(self.net, self.pool_dir / f"iter_{self.iter:06d}.pt", iter=self.iter, steps=self.steps)
@@ -267,26 +270,19 @@ class Trainer:
         N = self.cfg.num_envs
         ar = np.arange(N)
         self.net.eval()
-        # GPU: learner + league opponents in one forward per step (ctrl id k -> policy k). Not on the CPU, where
-        # compute dominates and padding every policy to the learner's batch would cost more than it saves.
-        stack = PolicyStack([self.net, *self.opponents]) if self.opponents and self.dev.type == "cuda" else None
         for _ in range(self.cfg.rollout):
             ctrl_now = self.ctrl[ar, self.actor]
             actions = np.zeros(N, np.int64)
-            groups = [np.nonzero(ctrl_now == k)[0] for k in range(1 + len(self.opponents))]
-            if stack is None:
-                outs = [p.act(self.obs[g], self.mask[g]) if len(g) else None
-                        for p, g in zip([self.net, *self.opponents], groups)]
-            else:
-                outs = stack.act([self.obs[g] for g in groups], [self.mask[g] for g in groups])
-            for g, out in zip(groups, outs):
-                if out is not None:
-                    actions[g] = out[0]
-            li = groups[0]
+            li = np.nonzero(ctrl_now == LEARNER)[0]
             if len(li):
-                a, lp, v = outs[0]
+                a, lp, v = self.actor_net.act(self.obs[li], self.mask[li])
+                actions[li] = a
                 idx = buf.add(self.obs[li], self.mask[li], a, lp, v, li, self.actor[li])
                 self.last_idx[li, self.actor[li]] = idx
+            for k, opp in enumerate(self.opponents, start=1):
+                oi = np.nonzero(ctrl_now == k)[0]
+                if len(oi):
+                    actions[oi] = opp.act(self.obs[oi], self.mask[oi])[0]
             self.env.step(actions, self.obs, self.mask, self.actor, self.done, self.winner, self.length, self.final_vp)
             self.steps += len(li)
             for e in np.nonzero(self.done)[0]:
