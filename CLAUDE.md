@@ -27,6 +27,9 @@ that isn't linked from this file or the README, warn the owner.** Either link it
   reporting it (label collisions, colours that mean different things in different panels).
 - Ask before starting multi-hour runs unless the owner asked for one.
 - Don't install tools or system software on the owner's machine without asking; they prefer to do it themselves.
+- **Never run anything that can incur costs.** Remote compute stays on prepaid/free Colab (free tier or
+  already-bought compute units); no Colab Enterprise, GCP/Vertex, or other billed cloud services, and never
+  buy units or upgrade a plan.
 - The owner uses this machine interactively. Heavy jobs make the desktop stutter even when niced (memory
   bandwidth), so keep benchmarks and side jobs to about half the cores.
 
