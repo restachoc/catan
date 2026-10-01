@@ -31,8 +31,11 @@ import numpy as np
 import torch
 
 from catan_rl import N_ACTIONS, OBS_SIZE, VecEnv
+from catan_rl._engine import STAT_NAMES
 from catan_rl.evaluate import evaluate
 from catan_rl.model import GraphedPolicy, PolicyNet, load, make_policy, save
+from catan_rl.strategy import STRATEGIES, classify, spending
+from catan_rl.tracking import LEGACY, Tracker
 
 RUST_BOT = -1
 LEARNER = 0
@@ -74,11 +77,15 @@ class Config:
     # eval / io
     eval_every: int = 20
     eval_games: int = 400
+    eval_both_boards: bool = True  # also evaluate on the other board type (generalisation curve)
     threads: int = 0
     resume: str = ""
     # hardware: "cpu" or "cuda"; amp = fp16 autocast (cuda only, ~1.5x for the GNN on a T4)
     device: str = "cpu"
     amp: bool = False
+    # Weights & Biases (off by default; key from `wandb login` or WANDB_API_KEY, never from the repo)
+    wandb: bool = False
+    wandb_project: str = "catan"
 
 
 class Buffer:
@@ -210,8 +217,12 @@ class Trainer:
         self.buf = Buffer(N * cfg.rollout + N * 4)
         self.carry: dict | None = None
         self.last_idx = np.full((N, 4), -1, np.int64)
-        self.stats = {"games": 0, "len": [], "learner_wins": 0, "learner_games": 0}
+        self.reset_stats()
         self.metrics_path = self.dir / "metrics.csv"
+        self.tracker = Tracker(cfg.wandb, cfg.wandb_project, self.dir, cfg.name, dataclasses.asdict(cfg))
+
+    def reset_stats(self) -> None:
+        self.stats = {"games": 0, "len": [], "learner_wins": 0, "learner_games": 0, "draws": 0, "players": []}
 
     # -------------------------------------------------------------- league
 
@@ -285,9 +296,14 @@ class Trainer:
                     actions[oi] = opp.act(self.obs[oi], self.mask[oi])[0]
             self.env.step(actions, self.obs, self.mask, self.actor, self.done, self.winner, self.length, self.final_vp)
             self.steps += len(li)
-            for e in np.nonzero(self.done)[0]:
+            ended = np.nonzero(self.done)[0]
+            game_stats = self.env.last_game_stats() if len(ended) else None
+            for e in ended:
                 self.stats["games"] += 1
                 self.stats["len"].append(self.length[e])
+                self.stats["draws"] += int(self.winner[e] < 0)
+                learner_seats = [s for s in range(self.cfg.n_players) if self.ctrl[e, s] == LEARNER]
+                self.stats["players"].extend(game_stats[e, learner_seats])
                 for s in range(self.cfg.n_players):
                     j = self.last_idx[e, s]
                     if self.ctrl[e, s] == LEARNER and j >= 0:
@@ -320,7 +336,8 @@ class Trainer:
         n = len(idx)
         mb = min(cfg.minibatch, n)
         self.net.train()
-        logs = {"pg": [], "vf": [], "ent": [], "kl": [], "clipfrac": []}
+        params_before = torch.nn.utils.parameters_to_vector(self.net.parameters()).detach().clone()
+        logs = {k: [] for k in ("pg", "vf", "ent", "kl", "clipfrac", "grad_norm", "max_prob", "ent_norm", "n_legal")}
         for _ in range(cfg.epochs):
             perm = torch.randperm(n)
             for s in range(0, n - mb + 1, mb):
@@ -331,7 +348,8 @@ class Trainer:
                 logp_all = torch.log_softmax(logits, -1)
                 lp = logp_all.gather(-1, act[bd, None]).squeeze(-1)
                 probs = logp_all.exp()
-                ent = -(probs * logp_all.clamp(min=-30)).sum(-1).mean()
+                ent_rows = -(probs * logp_all.clamp(min=-30)).sum(-1)
+                ent = ent_rows.mean()
                 ratio = (lp - old_lp[bd]).exp()
                 a = adv_t[bd]
                 a = (a - a.mean()) / (a.std() + 1e-8)
@@ -341,7 +359,7 @@ class Trainer:
                 self.opt.zero_grad(set_to_none=True)
                 self.scaler.scale(loss).backward()
                 self.scaler.unscale_(self.opt)
-                torch.nn.utils.clip_grad_norm_(self.net.parameters(), cfg.max_grad_norm)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.net.parameters(), cfg.max_grad_norm)
                 self.scaler.step(self.opt)
                 self.scaler.update()
                 with torch.no_grad():
@@ -350,21 +368,79 @@ class Trainer:
                     logs["ent"].append(ent.item())
                     logs["kl"].append(((ratio - 1) - ratio.log()).mean().item())
                     logs["clipfrac"].append(((ratio - 1).abs() > cfg.clip).float().mean().item())
-        out = {k: float(np.mean(v)) for k, v in logs.items()}
+                    logs["grad_norm"].append(grad_norm.item())  # before clipping (inf/nan = fp16 overflow step)
+                    n_legal = mask[b].sum(-1).to(self.dev).float()
+                    multi = n_legal > 1  # entropy relative to its maximum, log(#legal), where there is a choice
+                    logs["ent_norm"].append((ent_rows[multi] / n_legal[multi].log()).mean().item() if multi.any() else 0.0)
+                    logs["max_prob"].append(probs.max(-1).values.mean().item())
+                    logs["n_legal"].append(n_legal.mean().item())
+        out = {k: float(np.mean(v)) for k, v in logs.items() if k not in ("grad_norm", "max_prob", "ent_norm", "n_legal")}
         out["samples"] = n
         ev = 1 - np.var(ret[idx] - buf.val[idx]) / (np.var(ret[idx]) + 1e-8)
         out["explained_var"] = float(ev)
+        g = np.array(logs["grad_norm"])
+        params_after = torch.nn.utils.parameters_to_vector(self.net.parameters()).detach()
+        out.update({
+            "ppo/grad_norm": float(np.mean(g[np.isfinite(g)])) if np.isfinite(g).any() else float("nan"),
+            "ppo/grad_norm_max": float(g[np.isfinite(g)].max()) if np.isfinite(g).any() else float("nan"),
+            "ppo/grad_clipped_frac": float((g > cfg.max_grad_norm).mean()),
+            "ppo/entropy_norm": float(np.mean(logs["ent_norm"])),
+            "ppo/max_prob": float(np.mean(logs["max_prob"])),
+            "ppo/legal_actions": float(np.mean(logs["n_legal"])),
+            "ppo/adv_mean": float(adv[idx].mean()), "ppo/adv_std": float(adv[idx].std()),
+            "ppo/return_mean": float(ret[idx].mean()), "ppo/value_mean": float(buf.val[idx].mean()),
+            "ppo/lr": self.opt.param_groups[0]["lr"],
+            "ppo/vp_coef": cfg.vp_coef * max(0.0, 1.0 - self.steps / (cfg.total_steps * cfg.vp_anneal_frac)),
+            "ppo/carried_frac": len(carry) / max(1, buf.n),
+            "nn/param_norm": float(params_after.norm()),
+            "nn/update_ratio": float((params_after - params_before).norm() / (params_before.norm() + 1e-12)),
+            "nn/amp_scale": float(self.scaler.get_scale()) if self.amp else 1.0,
+        })
+        return out
+
+    def game_metrics(self) -> dict:
+        """Learner players in the training games finished this iteration: results, VP and strategy mix."""
+        st = self.stats
+        out = {"game/draw_rate": st["draws"] / max(1, st["games"])}
+        if not st["players"]:
+            return out
+        p = np.array(st["players"], np.float32)
+        S = {n: i for i, n in enumerate(STAT_NAMES)}
+        won = p[:, S["won"]] > 0
+        out.update({
+            "game/learner_vp": float(p[:, S["vp"]].mean()),
+            "game/longest_road_rate": float(p[:, S["longest_road"]].mean()),
+            "game/largest_army_rate": float(p[:, S["largest_army"]].mean()),
+            "game/knights": float(p[:, S["knights"]].mean()),
+            "game/cities": float(p[:, S["cities"]].mean()),
+            "game/settlements": float(p[:, S["settlements"]].mean()),
+        })
+        labels = classify(p)
+        for group, sel in (("all", np.ones(len(p), bool)), ("winners", won)):
+            if not sel.any():
+                continue
+            for i, name in enumerate(STRATEGIES):
+                out[f"strategy/{group}/{name}"] = float((labels[sel] == i).mean())
+            sp = spending(p[sel])
+            total = max(1.0, float(sum(v.sum() for v in sp.values())))
+            for k, v in sp.items():
+                out[f"strategy/{group}/spend_{k}"] = float(v.sum() / total)
         return out
 
     # -------------------------------------------------------------- main loop
 
     def log(self, row: dict) -> None:
+        """metrics.csv: the fixed legacy columns (plot_runs reads these); metrics.jsonl: every metric."""
         new = not self.metrics_path.exists()
+        # keep an existing file's column order (resumed runs)
+        fields = list(LEGACY) if new else self.metrics_path.open().readline().strip().split(",")
         with self.metrics_path.open("a", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(row))
+            w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
             if new:
                 w.writeheader()
             w.writerow(row)
+        with (self.dir / "metrics.jsonl").open("a") as f:
+            f.write(json.dumps({k: v for k, v in row.items() if v != ""}) + "\n")
 
     def checkpoint(self, path: Path) -> None:
         save(self.net, path, opt=self.opt.state_dict(), steps=self.steps, iter=self.iter, best_wr=self.best_wr)
@@ -379,6 +455,7 @@ class Trainer:
             t_roll = time.perf_counter() - t
             info = self.update()
             t_all = time.perf_counter() - t
+            t_upd = t_all - t_roll
             self.iter += 1
             if self.iter % cfg.snapshot_every == 0:
                 self.snapshot()
@@ -392,21 +469,38 @@ class Trainer:
                 "games": st["games"],
                 "game_len": round(float(np.mean(st["len"])) if st["len"] else 0, 1),
                 "train_wr": round(st["learner_wins"] / max(1, st["learner_games"]), 3),
-                **{k: round(v, 4) for k, v in info.items()},
+                **{k: (round(v, 4) if k in LEGACY else v) for k, v in info.items()},
                 "eval_wr_heuristic": "",
                 "eval_vp": "",
+                "perf/rollout_s": round(t_roll, 2),
+                "perf/update_s": round(t_upd, 2),
+                "league/pool": len(list(self.pool_dir.glob("*.pt"))),
+                "league/active_opponents": len(self.opponents),
+                **self.game_metrics(),
             }
-            self.stats = {"games": 0, "len": [], "learner_wins": 0, "learner_games": 0}
+            if self.dev.type == "cuda":
+                row["perf/gpu_mem_gb"] = round(torch.cuda.max_memory_allocated() / 2**30, 2)
+                torch.cuda.reset_peak_memory_stats()
+            self.reset_stats()
             if self.iter % cfg.eval_every == 0:
+                te = time.perf_counter()
                 ev = evaluate(self.net, "heuristic", games=cfg.eval_games, n_players=cfg.n_players,
                               random_board=cfg.random_board, seed=10_000)  # same games every eval
                 row["eval_wr_heuristic"] = round(ev["win_rate"], 3)
                 row["eval_vp"] = round(ev["avg_vp"], 2)
+                if cfg.eval_both_boards:
+                    other = "beginner" if cfg.random_board else "random"
+                    ev2 = evaluate(self.net, "heuristic", games=cfg.eval_games, n_players=cfg.n_players,
+                                   random_board=not cfg.random_board, seed=10_000)
+                    row[f"eval/{other}_board/win_rate"] = round(ev2["win_rate"], 3)
+                    row[f"eval/{other}_board/vp"] = round(ev2["avg_vp"], 2)
+                row["perf/eval_s"] = round(time.perf_counter() - te, 1)
                 self.checkpoint(self.dir / "latest.pt")
                 if ev["win_rate"] > self.best_wr:
                     self.best_wr = ev["win_rate"]
                     self.checkpoint(self.dir / "best.pt")
             self.log(row)
+            self.tracker.log(row)
             elapsed = time.perf_counter() - t0
             rate = (self.steps - steps0) / elapsed
             eta = (cfg.total_steps - self.steps) / max(rate, 1)
@@ -419,6 +513,7 @@ class Trainer:
                 flush=True,
             )
         self.checkpoint(self.dir / "latest.pt")
+        self.tracker.finish()
 
 
 def main() -> None:

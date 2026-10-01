@@ -16,7 +16,7 @@ git pull -q --ff-only
 git log --oneline -1
 command -v cargo >/dev/null || [ -f ~/.cargo/env ] || curl -sSf https://sh.rustup.rs | sh -s -- -y -q --profile minimal >/dev/null
 source ~/.cargo/env
-pip -q install "maturin>=1.7,<2" matplotlib
+pip -q install "maturin>=1.7,<2" matplotlib wandb
 rm -rf /content/wheels
 maturin build --release -q -o /content/wheels 2>&1 | tail -1
 pip -q install --no-deps --force-reinstall /content/wheels/*.whl

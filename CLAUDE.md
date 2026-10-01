@@ -95,6 +95,7 @@ python/catan_rl/
   az.py                   AlphaZero trainer: AzPool self-play (Rust) + replay buffer + AZNet
   evaluate.py             evaluate() vs bots or checkpoints (--random-board); replay export
   strategy.py             strategy mix of a run's snapshots in self-play -> plots/<run>_strategy.png
+  tracking.py             optional W&B logging (--wandb): metric grouping, stable run id for --resume
   eval_curve.py           every snapshot of a run on the same eval games -> runs/<run>/eval_curve.csv (plot_runs uses it)
   plot_runs.py            eval curves of several runs side by side
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
@@ -171,6 +172,25 @@ tab idles too long, so keep single jobs to a few hours. The job runs inside the 
 moves to the background after 2 min and notifies on completion. Don't poll. The tool call itself gives up after
 30 min of silence while the cell keeps running; for long jobs, watch for `~/Downloads/<run>.zip` instead.
 Speeds: [board-network-speed](findings/board-network-speed.md) (GNN d64 6M steps ≈ 35 min, d128 ≈ 70 min).
+
+## Weights & Biases (`--wandb`)
+
+Off by default. With `--wandb`, `ppo.py` logs every metric to W&B (project `--wandb-project`, default `catan`),
+x-axis = training samples. Groups: `eval/` (fixed games, plus the other board type: `eval/<board>_board/`),
+`game/` and `strategy/` (learner players in training games), `ppo/`, `nn/`, `perf/`, `league/`. Every metric also
+goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed columns (plot_runs reads those).
+
+**The repo is public, so the API key must never enter it** (nor notebook code, commits, logs or chat):
+- This machine: the owner runs `.venv/bin/wandb login` in their own terminal (key goes to `~/.netrc`).
+- Colab: the owner stores the key once as a Colab secret named `WANDB_API_KEY` (key icon in the sidebar, notebook
+  access on). The launch cell copies it into the environment without printing it:
+  ```
+  import os; from google.colab import userdata; os.environ["WANDB_API_KEY"] = userdata.get("WANDB_API_KEY")
+  !git clone -q https://github.com/restachoc/catan 2>/dev/null; bash catan/scripts/colab.sh ppo --name <run> --wandb --device cuda --amp [flags]
+  ```
+- Never echo the environment or `userdata` values. The W&B entity isn't hard-coded (`WANDB_ENTITY` or the
+  account default). Projects are private (or team-only) unless the owner makes them public in W&B.
+- Test without a key or network: `WANDB_MODE=offline`.
 
 ## Architecture invariants (don't break these)
 
