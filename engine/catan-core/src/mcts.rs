@@ -164,7 +164,7 @@ impl Search {
     /// Follow edge `e` of `node`: replay the action with a fresh seed and find or create the child.
     fn child(&mut self, node: u32, e: u32) -> u32 {
         let mut s = self.nodes[node as usize].state;
-        s.rng = Rng::new(self.rng.next_u64());
+        s.reseed_chance(self.rng.next_u64());
         let action = self.nodes[node as usize].edges[e as usize].action;
         s.step(action as usize);
         let key = state_key(&s);
@@ -267,7 +267,7 @@ pub fn determinize(s: &mut State, viewer: usize, rng: &mut Rng) {
     let rest: Vec<u8> = it.collect();
     s.dev_deck[..rest.len()].copy_from_slice(&rest);
     debug_assert_eq!(rest.len(), s.dev_deck_len as usize);
-    s.rng = Rng::new(rng.next_u64());
+    s.reseed_chance(rng.next_u64());
 }
 
 fn gamma(rng: &mut Rng, alpha: f32) -> f32 {

@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from catan_rl import N_ACTIONS, OBS_SIZE, Game, VecEnv
 from catan_rl.model import PolicyBot, PolicyNet, load
@@ -21,6 +22,19 @@ from catan_rl.model import PolicyBot, PolicyNet, load
 
 def evaluate(net: PolicyNet, opponent: str | PolicyNet = "heuristic", games: int = 400, n_players: int = 4,
              random_board: bool = False, seed: int = 12345, greedy: bool = False) -> dict:
+    """Win rate and VP of `net` in one seat (rotating by env) against `opponent` in the others.
+
+    Fully determined by `seed`: the same boards, dev decks and dice sequences every call (the engine keeps
+    chance streams independent of the actions), and the policy's sampling uses a torch RNG seeded here and
+    forked, so evaluating doesn't disturb the caller's random state.
+    """
+    dev = next(net.parameters()).device
+    with torch.random.fork_rng(devices=[dev] if dev.type == "cuda" else []):
+        torch.manual_seed(seed)
+        return _evaluate(net, opponent, games, n_players, random_board, seed, greedy)
+
+
+def _evaluate(net, opponent, games: int, n_players: int, random_board: bool, seed: int, greedy: bool) -> dict:
     N = min(games, 256)
     env = VecEnv(N, seed=seed, n_players=n_players, random_board=random_board)
     learner_seat = np.arange(N) % n_players

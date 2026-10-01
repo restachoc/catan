@@ -57,7 +57,11 @@ pub const N_PHASES: usize = 9;
 pub struct State {
     pub cfg: Config,
     pub board: Board,
-    pub rng: Rng,
+    /// Chance streams, separate so that one source's draws never shift another's: the k-th roll of a game
+    /// is the same whatever the players do (common random numbers for evaluations). Board and dev deck
+    /// come from a third, setup-only stream in `new`.
+    pub dice: Rng,
+    pub steal_rng: Rng,
     pub settlements: [u64; MAX_P],
     pub cities: [u64; MAX_P],
     pub roads: [u128; MAX_P],
@@ -91,7 +95,17 @@ pub struct State {
     pub winner: i8,
 }
 
+const DICE_STREAM: u64 = 0xD1CE_5EED_0000_0001;
+const STEAL_STREAM: u64 = 0x57EA_15EE_D000_0002;
+
 impl State {
+    /// Replace all in-game chance streams (dice, steals) with ones derived from `seed`. Used by search to
+    /// sample a different outcome per edge traversal.
+    pub fn reseed_chance(&mut self, seed: u64) {
+        self.dice = Rng::new(seed ^ DICE_STREAM);
+        self.steal_rng = Rng::new(seed ^ STEAL_STREAM);
+    }
+
     pub fn new(cfg: Config, seed: u64) -> Self {
         assert!((2..=4).contains(&cfg.n_players));
         let mut rng = Rng::new(seed);
@@ -109,7 +123,8 @@ impl State {
         State {
             cfg,
             board,
-            rng,
+            dice: Rng::new(seed ^ DICE_STREAM),
+            steal_rng: Rng::new(seed ^ STEAL_STREAM),
             settlements: [0; MAX_P],
             cities: [0; MAX_P],
             roads: [0; MAX_P],
@@ -578,8 +593,8 @@ impl State {
     }
 
     fn roll(&mut self) {
-        let d1 = 1 + self.rng.below(6) as u8;
-        let d2 = 1 + self.rng.below(6) as u8;
+        let d1 = 1 + self.dice.below(6) as u8;
+        let d2 = 1 + self.dice.below(6) as u8;
         self.last_roll = [d1, d2];
         self.rolled = true;
         let sum = d1 + d2;
@@ -676,7 +691,7 @@ impl State {
         if total == 0 {
             return;
         }
-        let mut k = self.rng.below(total);
+        let mut k = self.steal_rng.below(total);
         for r in 0..5 {
             let c = self.hands[victim][r] as u32;
             if k < c {

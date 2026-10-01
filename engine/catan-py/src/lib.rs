@@ -147,6 +147,8 @@ impl Game {
 struct Slot {
     state: State,
     bot_rng: Rng,
+    /// Games started in this slot; with the slot index and the env seed it fixes the next game's seed.
+    games: u64,
     seats: [u8; 4],
     steps: u32,
     /// Per-seat end-of-game statistics of the most recently finished game.
@@ -164,13 +166,21 @@ struct Slot {
 struct VecEnv {
     slots: Vec<Slot>,
     cfg: Config,
-    next_seed: u64,
+    seed: u64,
 }
 
 impl VecEnv {
-    fn reset_slot(slot: &mut Slot, cfg: Config, seed: u64) {
-        slot.state = State::new(cfg, seed);
-        slot.bot_rng = Rng::new(seed ^ 0xB07);
+    /// Seed of the `game`-th game in slot `i`: independent of when other games end, so two runs of the same
+    /// env seed play the same games in the same slots whatever the policies do.
+    fn game_seed(seed: u64, i: usize, game: u64) -> u64 {
+        Rng::new(seed ^ (i as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93) ^ game.wrapping_mul(0x9E37_79B9_7F4A_7C15)).next_u64()
+    }
+
+    fn reset_slot(slot: &mut Slot, cfg: Config, seed: u64, i: usize) {
+        slot.games += 1;
+        let s = Self::game_seed(seed, i, slot.games);
+        slot.state = State::new(cfg, s);
+        slot.bot_rng = Rng::new(s ^ 0xB07);
         slot.steps = 0;
     }
 
@@ -204,15 +214,19 @@ impl VecEnv {
     fn new(num_envs: usize, seed: u64, n_players: u8, vp_target: u8, random_board: bool, max_turns: u16) -> PyResult<Self> {
         let cfg = make_config(n_players, vp_target, random_board, max_turns)?;
         let slots = (0..num_envs)
-            .map(|i| Slot {
-                state: State::new(cfg, seed + i as u64),
-                bot_rng: Rng::new(seed + i as u64),
-                seats: [SEAT_EXTERNAL; 4],
-                steps: 0,
-                last_stats: [[0.0; N_STATS]; 4],
+            .map(|i| {
+                let s = Self::game_seed(seed, i, 0);
+                Slot {
+                    state: State::new(cfg, s),
+                    bot_rng: Rng::new(s ^ 0xB07),
+                    games: 0,
+                    seats: [SEAT_EXTERNAL; 4],
+                    steps: 0,
+                    last_stats: [[0.0; N_STATS]; 4],
+                }
             })
             .collect();
-        Ok(VecEnv { slots, cfg, next_seed: seed + num_envs as u64 })
+        Ok(VecEnv { slots, cfg, seed })
     }
 
     #[getter]
@@ -262,8 +276,7 @@ impl VecEnv {
         let mask = mask.as_slice_mut()?;
         let actor = actor.as_slice_mut()?;
         let cfg = self.cfg;
-        let base = self.next_seed;
-        self.next_seed += self.slots.len() as u64;
+        let seed = self.seed;
         let slots = &mut self.slots;
         py.detach(|| {
             slots
@@ -273,7 +286,7 @@ impl VecEnv {
                 .zip(actor.par_iter_mut())
                 .enumerate()
                 .for_each(|(i, (((slot, o), m), a))| {
-                    Self::reset_slot(slot, cfg, base + i as u64);
+                    Self::reset_slot(slot, cfg, seed, i);
                     Self::advance_bots(slot);
                     Self::write(slot, o, m, a);
                 });
@@ -320,8 +333,7 @@ impl VecEnv {
         let mut final_vp = final_vp.readwrite();
         let final_vp = final_vp.as_slice_mut()?;
         let cfg = self.cfg;
-        let base = self.next_seed;
-        self.next_seed += self.slots.len() as u64;
+        let seed = self.seed;
         let slots = &mut self.slots;
         py.detach(|| {
             slots
@@ -350,7 +362,7 @@ impl VecEnv {
                         for p in 0..slot.state.n() {
                             slot.last_stats[p] = player_stats(&slot.state, p);
                         }
-                        Self::reset_slot(slot, cfg, base + i as u64);
+                        Self::reset_slot(slot, cfg, seed, i);
                         Self::advance_bots(slot);
                     } else {
                         *d = false;

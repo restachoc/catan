@@ -79,6 +79,7 @@ python/catan_rl/
   az.py                   AlphaZero trainer: AzPool self-play (Rust) + replay buffer + AZNet
   evaluate.py             evaluate() vs bots or checkpoints (--random-board); replay export
   strategy.py             strategy mix of a run's snapshots in self-play -> plots/<run>_strategy.png
+  eval_curve.py           every snapshot of a run on the same eval games -> runs/<run>/eval_curve.csv (plot_runs --fixed)
   plot_runs.py            eval curves of several runs side by side
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
   bench_compute.py        rollout/train throughput and time projections
@@ -113,6 +114,7 @@ nice -n 10 .venv/bin/python -m catan_rl.az --name <run> [flags]    # flags mirro
 .venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--random-board] [--replays N]
 .venv/bin/python -m catan_rl.strategy <run> [--games 300]   # cached in runs/<run>/strategy.csv
 .venv/bin/python -m catan_rl.generalization <run> ... [--labels ...]   # cached in runs/<run>/generalization.json
+.venv/bin/python -m catan_rl.eval_curve <run> ...   # then plot_runs --fixed: smooth curves on fixed games
 .venv/bin/python -m catan_rl.plot_runs <run> ... [--labels ...] [--out plots/<name>.png]   # default plots/<a>_vs_<b>.png
 ```
 
@@ -159,8 +161,12 @@ the diagnostic recipe trains at ~3.3–3.7k samples/s before the league starts a
   clickable spots and buttons. Any rule change lives in `state.rs` only.
 - **`State` is `Copy` and allocation-free.** Bitboards: `u64` per player for settlements/cities, `u128` per
   player for roads. This keeps stepping fast and makes cloning for search free.
-- **Determinism.** A game is fully defined by `(seed, config, action list)`, and replays depend on this. All
-  randomness (dice, dev deck, steals, random board) comes from `State.rng`; bots use their own `Rng`.
+- **Determinism.** A game is fully defined by `(seed, config, action list)`, and replays depend on this. Chance
+  comes from independent streams derived from the seed: board and dev deck at setup, `State.dice`, and
+  `State.steal_rng`. So the k-th roll and the deck order never depend on the actions (common random numbers:
+  evaluations replay the same games whatever the policy does). Never draw dice from another stream or vice
+  versa. Search reseeds with `reseed_chance`. VecEnv seeds slot i's j-th game from `(seed, i, j)`, not from
+  timing. Bots use their own `Rng`.
 - **`step()` checks legality only via `debug_assert`.** Use `try_step()` for untrusted input. `Game.step` in
   the bindings uses `try_step`, and `VecEnv.step` validates every action before stepping.
 - **Every non-terminal state has at least one legal action.** The stress test asserts this. Keep phases
@@ -314,7 +320,12 @@ the diagnostic recipe trains at ~3.3–3.7k samples/s before the league starts a
   the end-of-game stats of each env's last finished game.
 - Bot seats set with `VecEnv.set_seats` act inside Rust during `step`/`reset`, so Python only sees states
   where an `"external"` seat acts.
-- Evaluations of 400 games move ±3–5 percentage points between checkpoints; use 2000 games for claims.
+- `evaluate()` is fully determined by its seed (engine streams plus a forked, seeded torch RNG), and PPO evaluates
+  every checkpoint on the same games (seed 10000). Different game sets still differ by ±4 pp at 400 games (one
+  checkpoint: 37.5% vs 46% on two seeds), so use 2000 games for claims. Runs before 2026-10-01 used a new game
+  set per evaluation; their `metrics.csv` curves are noisier than `eval_curve.csv`.
+- Replays and seeds from before the chance-stream split (2026-10-01) don't reproduce: the same seed now gives
+  different dice. Checkpoints are unaffected.
 - No Node.js on this machine, so the dataviz palette validator can't run; the charts use slots 1–4 of its
   documented reference palette plus magenta (slot 5) and a neutral grey.
 

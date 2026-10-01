@@ -5,6 +5,8 @@
 Output defaults to plots/<run>_vs_<run>.png, one file per comparison.
 
 Two panels sharing the x-axis (training steps): win rate vs 3 heuristic bots, and average final VP.
+`--fixed` plots runs/<run>/eval_curve.csv (every snapshot on the same games, see eval_curve.py) instead of
+the in-training evaluations.
 """
 
 from __future__ import annotations
@@ -23,8 +25,15 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 
 
-def load(run: str) -> tuple[list[float], list[float], list[float]]:
+def load(run: str, fixed: bool = False) -> tuple[list[float], list[float], list[float]]:
     steps, wr, vp = [], [], []
+    if fixed:
+        with (Path("runs") / run / "eval_curve.csv").open() as f:
+            for row in csv.DictReader(f):
+                steps.append(int(row["steps"]) / 1e6)
+                wr.append(float(row["win_rate"]) * 100)
+                vp.append(float(row["avg_vp"]))
+        return steps, wr, vp
     with (Path("runs") / run / "metrics.csv").open() as f:
         for row in csv.DictReader(f):
             if row["eval_wr_heuristic"]:
@@ -39,6 +48,7 @@ def main() -> None:
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--labels", nargs="+")
     ap.add_argument("--slots", nargs="+", type=int, help="palette slot (1-6) per run, so a run keeps its colour across charts")
+    ap.add_argument("--fixed", action="store_true", help="plot eval_curve.csv (same games for every snapshot)")
     ap.add_argument("--out", help="default: plots/<run>_vs_<run>.png")
     args = ap.parse_args()
     labels = args.labels or args.runs
@@ -53,7 +63,7 @@ def main() -> None:
         (axes[0], 1, "Win rate vs 3 heuristic bots", "%", 25, "chance (25%)"),
         (axes[1], 2, "Average final VP vs 3 heuristic bots", "VP", 10, "win threshold (10 VP)"),
     ]
-    data = [load(r) for r in args.runs]
+    data = [load(r, args.fixed) for r in args.runs]
     for ax, col, title, unit, ref, ref_label in panels:
         ax.set_facecolor(SURFACE)
         ax.grid(axis="y", color=GRID, linewidth=1)
@@ -89,7 +99,9 @@ def main() -> None:
     handles, names = axes[0].get_legend_handles_labels()
     fig.legend(handles, names, loc="lower center", bbox_to_anchor=(0.5, 0.045), ncol=min(3, len(names)),
                frameon=False, labelcolor=INK)
-    fig.text(0.01, 0.01, "Each point: 400 evaluation games, policy in one seat, 3 heuristic bots in the others.",
+    note = ("Each point: the same 400 games (boards, dev decks, dice) for every snapshot" if args.fixed
+            else "Each point: 400 evaluation games") + ", policy in one seat, 3 heuristic bots in the others."
+    fig.text(0.01, 0.01, note,
              color=INK2, fontsize=9)
     rows = -(-len(names) // 3)
     fig.tight_layout(rect=(0, 0.06 + 0.045 * rows, 1, 1))

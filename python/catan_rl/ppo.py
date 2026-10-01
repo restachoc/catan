@@ -399,7 +399,7 @@ class Trainer:
             self.stats = {"games": 0, "len": [], "learner_wins": 0, "learner_games": 0}
             if self.iter % cfg.eval_every == 0:
                 ev = evaluate(self.net, "heuristic", games=cfg.eval_games, n_players=cfg.n_players,
-                              random_board=cfg.random_board, seed=10_000 + self.iter)
+                              random_board=cfg.random_board, seed=10_000)  # same games every eval
                 row["eval_wr_heuristic"] = round(ev["win_rate"], 3)
                 row["eval_vp"] = round(ev["avg_vp"], 2)
                 self.checkpoint(self.dir / "latest.pt")

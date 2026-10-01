@@ -162,7 +162,7 @@ fn robber_blocks_production() {
     // Put the robber on every producing hex; no one may gain resources on that number then.
     for seed in 0..200u64 {
         let mut t = s;
-        t.rng = Rng::new(seed);
+        t.reseed_chance(seed);
         let before: Vec<u32> = (0..2).map(|p| t.hand_total(p)).collect();
         t.step(ROLL);
         let roll = t.last_roll[0] + t.last_roll[1];
@@ -171,7 +171,7 @@ fn robber_blocks_production() {
         }
         let hexes = t.board.num_hexes[roll as usize];
         let mut t2 = s;
-        t2.rng = Rng::new(seed);
+        t2.reseed_chance(seed);
         t2.robber = hexes.trailing_zeros() as u8;
         t2.step(ROLL);
         let gained_open: u32 = (0..2).map(|p| t.hand_total(p) - before[p]).sum();
@@ -366,6 +366,33 @@ fn determinism() {
             (actions, s.winner, s.turn)
         };
         assert_eq!(play(), play());
+    }
+}
+
+#[test]
+fn chance_streams_independent_of_play() {
+    // Same seed, different players: the k-th roll and the dev deck order must not depend on the actions.
+    for seed in 0..20 {
+        let play = |bot_seed: u64, heuristic: bool| {
+            let mut s = State::new(cfg(4), seed);
+            let deck = s.dev_deck;
+            let mut rng = Rng::new(bot_seed);
+            let mut rolls = vec![];
+            while !s.is_over() {
+                let a = if heuristic { heuristic_action(&s, &mut rng) } else { random_action(&s, &mut rng) };
+                s.step(a);
+                if a == ROLL {
+                    rolls.push(s.last_roll);
+                }
+            }
+            (rolls, deck, s.board.hex_res)
+        };
+        let (r1, d1, b1) = play(1, true);
+        let (r2, d2, b2) = play(2, false);
+        let n = r1.len().min(r2.len());
+        assert!(n > 20);
+        assert_eq!(r1[..n], r2[..n]);
+        assert_eq!((d1, b1), (d2, b2));
     }
 }
 
