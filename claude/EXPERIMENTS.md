@@ -21,6 +21,7 @@ kept no snapshots), `plots/generalization.png` (fixed vs random boards),
 | `gnn-randboard` | Run 5 (GNN) | Run 4 with `--arch gnn --hidden 64 --layers 4` (0.30M params), trained on a Colab T4 with `--amp` | 11.2% / 6.4 | 8.7% / 5.7 |
 | `gnn128-randboard` | Run 6 (GNN d128) | Run 5 with `--hidden 128` (1.15M params) | 11.7% / 6.3 | 13.4% / 6.3 |
 | `gnn128-l7-randboard` | Run 7 (d128, 7 rounds) | Run 6 with `--layers 7` (2.02M params) **and** warmup + constant LR (run 6 decayed to 5%); `--wandb` | 11.7% / 6.2 | **15.0% / 6.3** |
+| `gnn128-vpkeep-randboard` | Run 8 (VP reward kept) | Run 6 with `--vp-anneal-frac 0` and warmup + constant LR; `--wandb`. Checkpoints lost (Colab usage limit) | – | in-training, 400 games: 11.7% / 6.1 |
 | `az1` | AlphaZero az1 | AlphaZero, 64 sims, 256 games, 3M samples (~1.6 h), pure self-play, win/loss | 0.0% / 3.1 (raw policy) | 0.1% / 2.8 |
 
 az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, no upward trend.
@@ -32,6 +33,7 @@ az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, 
 - [reward-shaping-and-opponents](../findings/reward-shaping-and-opponents.md): run 1 vs run 2.
 - [gnn-width-d64-vs-d128](../findings/gnn-width-d64-vs-d128.md): run 6 vs run 5.
 - [gnn-rounds-4-vs-7](../findings/gnn-rounds-4-vs-7.md): run 7 vs run 6.
+- [vp-shaping-fade-vs-constant](../findings/vp-shaping-fade-vs-constant.md): run 8 vs run 6.
 - [bot-strategies](../findings/bot-strategies.md): strategy mix of runs 1–3 and 5–7.
 - [alphazero-value-memorisation](../findings/alphazero-value-memorisation.md): az1.
 - [evaluation-noise](../findings/evaluation-noise.md): why the in-training curves are bumpy; fixed-game curves.

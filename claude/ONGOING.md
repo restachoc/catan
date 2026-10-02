@@ -5,12 +5,11 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 8 (`gnn128-vpkeep-randboard`) is training on Colab** with `--wandb` (started 2026-10-02 ~12:05, ~70 min):
-  run 6's recipe (d128, 4 rounds) with `--vp-anneal-frac 0` (VP reward never fades) and the new warmup + constant
-  LR. Tests whether the plateau at ~6 VP from ~3.5M steps in runs 6 and 7 comes from the VP reward fading out.
-  Vs run 6 two things change (LR, fade), but run 7 showed the LR schedule barely matters. When `~/Downloads/gnn128-vpkeep-randboard.zip` exists: unzip in the repo root, delete the zip, delete the Colab runtime
-  (`runtime.unassign()` cell), `strategy` (cached; redraws the chart), `generalization` with runs 6–8, `plot_runs`,
-  finding + EXPERIMENTS row.
+- **Colab hit its free GPU usage limit** on 2026-10-02 (~13:00), which cut run 8's runtime before its zip downloaded.
+  No GPU runs until it resets; don't buy units. Run 8's curves are on W&B
+  ([finding](../findings/vp-shaping-fade-vs-constant.md)).
+- **The GNN plateaus at ~6 VP / ~12–15% from ~3.5M steps** in runs 6–8. Ruled out: LR decay, more rounds, the VP fade.
+  Candidates left: the global-token bottleneck (hybrid with seat tokens), the opponent mix (25% heuristic), more steps.
 - **Board network: the GNN is chosen.** Run 5 (d64 L4) reaches 8.7% on random boards vs the MLP's 0.5%, still
   rising ([finding](../findings/gnn-generalises-across-boards.md)); d128 (run 6) reaches 13.4%
   ([finding](../findings/gnn-width-d64-vs-d128.md)). The hybrid (GNN + attention to global/seat

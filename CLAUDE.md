@@ -22,6 +22,7 @@ conclusions go there, not here; this file keeps how things work and how to work.
 | [gnn-generalises-across-boards](findings/gnn-generalises-across-boards.md) | GNN d64 reaches 8.7% on random boards (MLP 0.5%), still rising at 6M steps. |
 | [gnn-width-d64-vs-d128](findings/gnn-width-d64-vs-d128.md) | GNN d128 reaches 13.4% on random boards (d64 8.7%); equal on the beginner board. |
 | [gnn-rounds-4-vs-7](findings/gnn-rounds-4-vs-7.md) | 7 message-passing rounds ≈ 4 (15.0% vs 13.4%, within noise) for +72% params. |
+| [vp-shaping-fade-vs-constant](findings/vp-shaping-fade-vs-constant.md) | Keeping the VP reward on all run doesn't lift the ~6 VP plateau. |
 | [reward-shaping-and-opponents](findings/reward-shaping-and-opponents.md) | Mixed opponents + VP shaping learn far faster than pure self-play with win/loss (confounded). |
 | [bot-strategies](findings/bot-strategies.md) | Bots favour dev cards and barely build extra settlements. |
 | [alphazero-value-memorisation](findings/alphazero-value-memorisation.md) | az1 failed: the value net memorised games; fixes listed. |
