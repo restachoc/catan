@@ -285,7 +285,8 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
   Unfinished tails are **carried into the next rollout** rather than bootstrapped. League seat assignment
   only changes at game end; changing it mid-game would orphan carried samples.
 - Reward is terminal: +1 win, −1/(n−1) loss, 0 draw, plus `vp_coef` × (own VP − mean opponent VP)/10,
-  annealed to 0 over `vp_anneal_frac` of training (`--vp-anneal-frac 0` keeps it constant). `--vp-coef 0` gives pure win/loss.
+  constant by default (`--vp-anneal-frac f` fades it to 0 over fraction f of training; runs 1–7 used 0.5, which
+  run 8 showed doesn't help). `--vp-coef 0` gives pure win/loss.
 - The learning rate warms up linearly over `warmup_steps` (default 0.5M samples), then stays constant (no decay;
   add one if a run needs it). Runs 1–6 used a linear decay to 5% at `total_steps`, so their last third barely
   updated.

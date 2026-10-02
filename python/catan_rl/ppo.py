@@ -12,8 +12,8 @@ Env groups (fixed per env index):
 Turn-based multi-agent bookkeeping: each learner decision is a sample tagged (env, seat). GAE runs
 per (env, seat) sequence, bootstrapping from the same seat's next decision. A sequence's last,
 unfinished sample is carried into the next rollout instead of being bootstrapped with a guess.
-Rewards are terminal: +1 win / -1/(n-1) loss (0 on a turn-limit draw), plus an annealed VP-margin
-term that gives early, dense signal.
+Rewards are terminal: +1 win / -1/(n-1) loss (0 on a turn-limit draw), plus a VP-margin term that gives
+denser signal (constant by default; can be annealed with --vp-anneal-frac).
 """
 
 from __future__ import annotations
@@ -69,9 +69,9 @@ class Config:
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     # reward shaping: vp_coef * (own VP - mean opponent VP) / 10, annealed to 0 over vp_anneal_frac of
-    # total_steps (0 = never annealed)
+    # total_steps (0 = never annealed, the default: fading it out didn't help, see findings/)
     vp_coef: float = 0.5
-    vp_anneal_frac: float = 0.5
+    vp_anneal_frac: float = 0.0
     # league
     snapshot_every: int = 20
     pool_size: int = 40

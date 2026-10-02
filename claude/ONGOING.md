@@ -16,8 +16,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   tokens) is the upgrade path if the 64-dim global token proves a bottleneck.
 - **Next experiments, proposed to the owner** (launch with `--wandb` from now on):
   1. GNN d64 on the fixed board, 6M steps (~40 min): if it nears run 1's 43%, the architecture is adequate.
-  2. The GNN at 20–30M steps (constant LR after warmup now; VP shaping still anneals over half of
-     `total_steps`). Redo in one Colab session; runs aren't in git, so resuming needs the checkpoint uploaded.
+  2. The GNN at 20–30M steps (constant LR after warmup and constant VP reward are now the defaults). Redo in
+     one Colab session; runs aren't in git, so resuming needs the checkpoint uploaded.
   3. 6 layers (~1.5× slower) if those stall. Use d128 as the base (run 6 beat d64).
 - W&B: runs 1–6 are backfilled (run 6's strategy data covers 23 of 29 snapshots; the CPU analysis was stopped);
   run 7 on is logged live. A toy run `wandb-check` is in the project; the owner may delete it.
