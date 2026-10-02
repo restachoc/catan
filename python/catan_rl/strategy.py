@@ -1,6 +1,6 @@
 """Which strategies do the bots adopt in self-play, and how does that change over training?
 
-    python -m catan_rl.strategy <run> [--games 300]
+    python -m catan_rl.strategy <run> [--games 300] [--device cuda]
 
 For every snapshot in runs/<run>/pool (plus latest.pt), plays `games` pure self-play games (all seats
 the same snapshot, on the run's board setting), records each player's end-of-game statistics, and classifies the strategy that
@@ -106,7 +106,7 @@ def summarize(st: np.ndarray) -> dict:
     return out
 
 
-def analyze(run: str, games: int, random_board: bool) -> list[dict]:
+def analyze(run: str, games: int, random_board: bool, device: str = "cpu") -> list[dict]:
     rdir = Path("runs") / run
     cache_path = rdir / "strategy.csv"
     cache = {}
@@ -124,7 +124,7 @@ def analyze(run: str, games: int, random_board: bool) -> list[dict]:
         if key in cache and int(cache[key]["steps"]) == meta.get("steps", 0) and int(cache[key]["games"]) == games:
             rows.append({k: (float(v) if k not in ("checkpoint",) else v) for k, v in cache[key].items()})
             continue
-        st = selfplay_stats(load(ck), games, random_board=random_board)
+        st = selfplay_stats(load(ck).to(device), games, random_board=random_board)
         row = {"checkpoint": key, "steps": meta.get("steps", 0), "games": games, **summarize(st)}
         rows.append(row)
         write_cache(cache_path, rows)  # after every snapshot, so an interrupted run keeps its progress
@@ -207,9 +207,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("run")
     ap.add_argument("--games", type=int, default=300)
+    ap.add_argument("--device", default="cpu")
     args = ap.parse_args()
     cfg = json.loads((Path("runs") / args.run / "config.json").read_text())
-    rows = analyze(args.run, args.games, cfg.get("random_board", False))
+    rows = analyze(args.run, args.games, cfg.get("random_board", False), args.device)
     print(f"saved {plot(args.run, rows)}")
 
 
