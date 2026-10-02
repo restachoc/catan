@@ -21,6 +21,7 @@ conclusions go there, not here; this file keeps how things work and how to work.
 | [mlp-memorises-board-layouts](findings/mlp-memorises-board-layouts.md) | The flat MLP learns one layout and fails on random boards (0.5–1.6%). |
 | [gnn-generalises-across-boards](findings/gnn-generalises-across-boards.md) | GNN d64 reaches 8.7% on random boards (MLP 0.5%), still rising at 6M steps. |
 | [gnn-width-d64-vs-d128](findings/gnn-width-d64-vs-d128.md) | GNN d128 reaches 13.4% on random boards (d64 8.7%); equal on the beginner board. |
+| [gnn-rounds-4-vs-7](findings/gnn-rounds-4-vs-7.md) | 7 message-passing rounds ≈ 4 (15.0% vs 13.4%, within noise) for +72% params. |
 | [reward-shaping-and-opponents](findings/reward-shaping-and-opponents.md) | Mixed opponents + VP shaping learn far faster than pure self-play with win/loss (confounded). |
 | [bot-strategies](findings/bot-strategies.md) | Bots favour dev cards and barely build extra settlements. |
 | [alphazero-value-memorisation](findings/alphazero-value-memorisation.md) | az1 failed: the value net memorised games; fixes listed. |
@@ -64,7 +65,7 @@ The bot is built in versions of increasing difficulty:
 | Version | Board | Trading | Status |
 |---|---|---|---|
 | v1 | fixed beginner board | none (bank/port only) | **current**: PPO diagnostic run `diag` beats the heuristic bot 43% of the time (chance = 25%); long run not started |
-| v2 | random boards | none | the flat MLP fails here (runs 3 and 4); the GNN (`--arch gnn`) reaches 8.7% at d64 (run 5) and 13.4% at d128 (run 6) after 6M steps on a Colab T4, still below chance; next: longer GNN runs |
+| v2 | random boards | none | the flat MLP fails here (runs 3 and 4); the GNN (`--arch gnn`) reaches 8.7% at d64 (run 5), 13.4% at d128 (run 6) and 15.0% with 7 rounds (run 7, within noise) after 6M steps on a Colab T4, still below chance; next: longer GNN runs |
 | v3 | either | bots accept/reject the human's offers | not started |
 | v4 | either | bots propose structured trades | not started |
 
@@ -344,7 +345,7 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
 - No Node.js on this machine, so the dataviz palette validator can't run; the charts use the slots of its
   documented reference palette (slots 1–7 used), plus a neutral grey. Keep a run's colour across charts with
   `plot_runs --slots` (run 1 blue, run 4 orange, run 2 aqua, run 3 yellow, az1 magenta, run 5 green, run 6
-  violet = slot 7). `all_runs.png` = `plot_runs diag diag-randboard selfplay selfplay-randboard gnn-randboard gnn128-randboard --slots 1 2 3 4 6 7`
+  violet = slot 7, run 7 magenta = slot 5, shared with az1, which is never in the same chart). `all_runs.png` = `plot_runs diag diag-randboard selfplay selfplay-randboard gnn-randboard gnn128-randboard --slots 1 2 3 4 6 7`
   with labels "Run 1: mixed + VP, fixed board", "Run 4: mixed + VP, random boards", "Run 2: self-play, fixed board",
   "Run 3: self-play, random boards", "Run 5: run 4 with the GNN", "Run 6: run 5 at d128".
 

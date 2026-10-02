@@ -5,18 +5,12 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 7 (`gnn128-l7-randboard`) is done** (zip unpacked, strategy.csv complete). Still to do: `strategy
-  gnn128-l7-randboard` (cached, redraws the chart), `generalization` with runs 5–8 once run 8 is in, `plot_runs`
-  (next palette slot), finding (7 rounds ≈ 4 rounds: in-training curves match to within noise; +72% params) +
-  EXPERIMENTS row.
 - **Run 8 (`gnn128-vpkeep-randboard`) is training on Colab** with `--wandb` (started 2026-10-02 ~12:05, ~70 min):
   run 6's recipe (d128, 4 rounds) with `--vp-anneal-frac 0` (VP reward never fades) and the new warmup + constant
   LR. Tests whether the plateau at ~6 VP from ~3.5M steps in runs 6 and 7 comes from the VP reward fading out.
-  Vs run 6 two things change (LR, fade), but run 7 showed the LR schedule barely matters. Same pickup steps as run 7.
-- **Run 6 strategy analysis** (started 2026-10-01 ~17:00, niced, 7 threads): `strategy gnn128-randboard`, then
-  `wandb_backfill gnn128-randboard --replace --fixed-evals` (its evals already used the fixed games; keep the
-  flag). Log: `runs/gnn128-randboard/strategy.log`. When done: look at `plots/gnn128-randboard_strategy.png`, add
-  run 6 to [bot-strategies](../findings/bot-strategies.md). The analysis caches per snapshot, so a rerun is cheap.
+  Vs run 6 two things change (LR, fade), but run 7 showed the LR schedule barely matters. When `~/Downloads/gnn128-vpkeep-randboard.zip` exists: unzip in the repo root, delete the zip, delete the Colab runtime
+  (`runtime.unassign()` cell), `strategy` (cached; redraws the chart), `generalization` with runs 6–8, `plot_runs`,
+  finding + EXPERIMENTS row.
 - **Board network: the GNN is chosen.** Run 5 (d64 L4) reaches 8.7% on random boards vs the MLP's 0.5%, still
   rising ([finding](../findings/gnn-generalises-across-boards.md)); d128 (run 6) reaches 13.4%
   ([finding](../findings/gnn-width-d64-vs-d128.md)). The hybrid (GNN + attention to global/seat
@@ -26,7 +20,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   2. The GNN at 20–30M steps (constant LR after warmup now; VP shaping still anneals over half of
      `total_steps`). Redo in one Colab session; runs aren't in git, so resuming needs the checkpoint uploaded.
   3. 6 layers (~1.5× slower) if those stall. Use d128 as the base (run 6 beat d64).
-- W&B: everything up to run 6 is backfilled. A toy run `wandb-check` is in the project; the owner may delete it.
+- W&B: runs 1–6 are backfilled (run 6's strategy data covers 23 of 29 snapshots; the CPU analysis was stopped);
+  run 7 on is logged live. A toy run `wandb-check` is in the project; the owner may delete it.
   The owner was asked to confirm the project's visibility (team account `gianni-van-de-velde-universiteit-gent`).
 
 ## Open decisions (waiting on the owner)
