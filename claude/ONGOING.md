@@ -5,10 +5,14 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 7 (`gnn128-l7-randboard`) died** on 2026-10-01 at 2.4M of 6M steps, ~41 min in (W&B: crashed, last heartbeat
-  15:51 UTC; throughput and GPU memory normal until then), so most likely the Colab runtime disconnected. No zip; the
-  partial curves are on W&B. Setup if relaunched: run 6 with `--layers 7` and the new warmup + constant LR (two
-  changes vs run 6, owner's choice), `--wandb`, est. ~2 h on a T4.
+- **Run 7 (`gnn128-l7-randboard`) is done** (zip unpacked, strategy.csv complete). Still to do: `strategy
+  gnn128-l7-randboard` (cached, redraws the chart), `generalization` with runs 5–8 once run 8 is in, `plot_runs`
+  (next palette slot), finding (7 rounds ≈ 4 rounds: in-training curves match to within noise; +72% params) +
+  EXPERIMENTS row.
+- **Run 8 (`gnn128-vpkeep-randboard`) is training on Colab** with `--wandb` (started 2026-10-02 ~12:05, ~70 min):
+  run 6's recipe (d128, 4 rounds) with `--vp-anneal-frac 0` (VP reward never fades) and the new warmup + constant
+  LR. Tests whether the plateau at ~6 VP from ~3.5M steps in runs 6 and 7 comes from the VP reward fading out.
+  Vs run 6 two things change (LR, fade), but run 7 showed the LR schedule barely matters. Same pickup steps as run 7.
 - **Run 6 strategy analysis** (started 2026-10-01 ~17:00, niced, 7 threads): `strategy gnn128-randboard`, then
   `wandb_backfill gnn128-randboard --replace --fixed-evals` (its evals already used the fixed games; keep the
   flag). Log: `runs/gnn128-randboard/strategy.log`. When done: look at `plots/gnn128-randboard_strategy.png`, add

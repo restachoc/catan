@@ -68,7 +68,8 @@ class Config:
     ent_coef: float = 0.01
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
-    # reward shaping: vp_coef * (own VP - mean opponent VP) / 10, annealed to 0
+    # reward shaping: vp_coef * (own VP - mean opponent VP) / 10, annealed to 0 over vp_anneal_frac of
+    # total_steps (0 = never annealed)
     vp_coef: float = 0.5
     vp_anneal_frac: float = 0.5
     # league
@@ -269,8 +270,13 @@ class Trainer:
         win = 1.0 if w == seat else (-1.0 / (P - 1) if w >= 0 else 0.0)
         vp = self.final_vp[e, :P]
         margin = (vp[seat] - (vp.sum() - vp[seat]) / (P - 1)) / 10.0
-        frac = self.steps / (self.cfg.total_steps * self.cfg.vp_anneal_frac)
-        return win + self.cfg.vp_coef * max(0.0, 1.0 - frac) * margin
+        return win + self.vp_weight() * margin
+
+    def vp_weight(self) -> float:
+        cfg = self.cfg
+        if cfg.vp_anneal_frac <= 0:
+            return cfg.vp_coef
+        return cfg.vp_coef * max(0.0, 1.0 - self.steps / (cfg.total_steps * cfg.vp_anneal_frac))
 
     def collect(self) -> None:
         buf = self.buf
@@ -390,7 +396,7 @@ class Trainer:
             "ppo/adv_mean": float(adv[idx].mean()), "ppo/adv_std": float(adv[idx].std()),
             "ppo/return_mean": float(ret[idx].mean()), "ppo/value_mean": float(buf.val[idx].mean()),
             "ppo/lr": self.opt.param_groups[0]["lr"],
-            "ppo/vp_coef": cfg.vp_coef * max(0.0, 1.0 - self.steps / (cfg.total_steps * cfg.vp_anneal_frac)),
+            "ppo/vp_coef": self.vp_weight(),
             "ppo/carried_frac": len(carry) / max(1, buf.n),
             "nn/param_norm": float(params_after.norm()),
             "nn/update_ratio": float((params_after - params_before).norm() / (params_before.norm() + 1e-12)),
