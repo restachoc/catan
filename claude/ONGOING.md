@@ -5,10 +5,14 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 9 (`gnn128-cards-randboard`) on Colab** with `--wandb` (2026-10-03, ~70 min + GPU strategy analysis): run 8's
+- **Run 9 (`gnn128-cards-randboard`): ready to launch, waiting for Colab's GPU limit to reset** (still limited on
+  2026-10-03). Code is pushed (`9b6bd63`). ~70 min + GPU strategy analysis, with `--wandb`: run 8's
   recipe (d128, 4 rounds, constant LR and VP reward, now the defaults) **with card counting in the observation**
   (OBS_SIZE 1292 → 1312). Only change vs run 8. Run 8 has no checkpoints, so compare the in-training curves (same
-  400 fixed games). When `~/Downloads/gnn128-cards-randboard.zip` exists: unzip in the repo root, delete the zip,
+  400 fixed games). Launch cell (check `nvidia-smi` shows a T4 first):
+  `--name gnn128-cards-randboard --wandb --random-board --arch gnn --hidden 128 --layers 4 --num-envs 256 --rollout 128
+  --total-steps 6e6 --snapshot-every 10 --eval-every 10 --eval-games 400 --device cuda --amp`, then
+  `strategy gnn128-cards-randboard --device cuda`, zip, download (as for run 8). When the zip exists: unzip in the repo root, delete the zip,
   `runtime.unassign()` on Colab, `strategy` (cached, redraws), `generalization gnn128-cards-randboard` (only runs
   with OBS_SIZE 1312 can be evaluated now), finding + EXPERIMENTS row. If no zip: check W&B, tell the owner.
 - **Colab hit its free GPU usage limit** on 2026-10-02 (~13:00), which cut run 8's runtime before its zip downloaded.
