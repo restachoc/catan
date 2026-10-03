@@ -30,11 +30,14 @@ pub struct Config {
     pub random_board: bool,
     /// Turn cap; reaching it ends the game as a draw (winner = -1).
     pub max_turns: u16,
+    /// Player-to-player trading. Off: `PROPOSE_TRADE` is never legal, so no offer ever happens (the trade actions
+    /// and offer inputs exist but stay unused).
+    pub trading: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { n_players: 4, vp_target: 10, random_board: false, max_turns: 500 }
+        Config { n_players: 4, vp_target: 10, random_board: false, max_turns: 500, trading: false }
     }
 }
 
@@ -369,7 +372,7 @@ impl State {
                         }
                     }
                 }
-                if self.offers_made < MAX_OFFERS && self.hand_total(p) > 0 && self.n() > 1 {
+                if self.cfg.trading && self.offers_made < MAX_OFFERS && self.hand_total(p) > 0 {
                     mask_set(&mut m, PROPOSE_TRADE);
                 }
             }

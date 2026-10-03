@@ -68,8 +68,8 @@ The bot is built in versions of increasing difficulty:
 |---|---|---|---|
 | v1 | fixed beginner board | none (bank/port only) | **current**: PPO diagnostic run `diag` beats the heuristic bot 43% of the time (chance = 25%); long run not started |
 | v2 | random boards | none | the flat MLP fails here (runs 3 and 4); the GNN (`--arch gnn`) reaches 8.7% at d64 (run 5), 13.4% at d128 (run 6) and 15.0% with 7 rounds (run 7, within noise) after 6M steps on a Colab T4, still below chance; next: longer GNN runs |
-| v3 | either | bots accept/reject offers | rules, UI and training support done (2026-10-03); no run yet |
-| v4 | either | bots propose structured trades | same implementation as v3 (1:1, 2:1, 1:2 offers); no run yet |
+| v3 | either | bots accept/reject offers | implemented, **off by default** (`--trading`); parked until the network is fixed: run 10 traded too much and learned slower |
+| v4 | either | bots propose structured trades | same implementation as v3 (1:1, 2:1, 1:2 offers) |
 
 Default game: 4 players (the human + 3 bots), configurable from 2 to 4.
 
@@ -183,7 +183,7 @@ Speeds: [board-network-speed](findings/board-network-speed.md) (GNN d64 6M steps
 
 Off by default. With `--wandb`, `ppo.py` logs every metric to W&B (project `--wandb-project`, default `catan`),
 x-axis = training samples. Groups: `eval/` (fixed games, plus the other board type: `eval/<board>_board/`, plus
-`eval/pair/`: two policy seats vs two heuristic bots, so it can trade with itself; win rate = either seat wins,
+`eval/pair/` with `--eval-pair`: two policy seats vs two heuristic bots, so it can trade with itself; win rate = either seat wins,
 chance 50%, and trades between the pair per game),
 `game/` and `strategy/` (learner players in training games), `ppo/`, `nn/`, `perf/`, `league/`. Every metric also
 goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed columns (plot_runs reads those).
@@ -234,13 +234,16 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
 - Longest Road (LR) is ≥5, broken by opponent settlements, and the holder keeps it on ties. If the holder
   drops and others tie, nobody holds it. Largest Army (LA) is ≥3 knights and strictly more than the holder.
 - `max_turns` (default 500) ends the game as a draw (`winner = -1`).
-- Player-to-player trading, after rolling: `PROPOSE_TRADE` (at most 3 per turn, counted even if cancelled), then
+- Player-to-player trading is **off by default** (`Config.trading`; `ppo --trading`, `evaluate --trading`,
+  `VecEnv(trading=True)`, `Game(trading=True)`). Off, `PROPOSE_TRADE` is never legal: the trade actions and offer
+  inputs exist (same N_ACTIONS/OBS_SIZE) but stay unused, so a model trained without trading can later continue
+  with it. With trading on, after rolling: `PROPOSE_TRADE` (at most 3 per turn, counted even if cancelled), then
   the terms (`OFFER`: give 1 get 1, give 2 get 1 or give 1 get 2, single resource types) or cancel. Every opponent
   answers in turn order (accept only if it can pay); with any accepter, the proposer picks one or cancels. Offering
   is one main-phase action so that the 60 sets of terms don't crowd out everything else for an untrained policy.
 - The built-in bots (heuristic and random) never offer and always decline, so against them trading can't help:
-  evaluation vs the heuristic doesn't measure it. The pair evaluation (`evaluate --pair`, `eval/pair/` in training;
-  `--no-eval-pair` turns it off) does: two policy seats on opposite sides vs two heuristic bots, chance 50%.
+  evaluation vs the heuristic doesn't measure it. The pair evaluation (`evaluate --pair`, `eval/pair/` in training
+  with `--eval-pair`, off by default) does: two policy seats on opposite sides vs two heuristic bots, chance 50%.
   `game/offers` and `game/trades` track trading in training games. `best.pt` is still chosen on the 1-seat eval.
   `random_any_action` (trading included) drives the rule tests.
 - The heuristic bot (`bots.rs`) is greedy and rule-based: city > settlement > useful dev card > road toward a

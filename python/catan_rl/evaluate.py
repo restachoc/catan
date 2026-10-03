@@ -25,7 +25,8 @@ from catan_rl.model import PolicyBot, PolicyNet, load
 
 
 def evaluate(net: PolicyNet, opponent: str | PolicyNet = "heuristic", games: int = 400, n_players: int = 4,
-             random_board: bool = False, seed: int = 12345, greedy: bool = False, pair: bool = False) -> dict:
+             random_board: bool = False, seed: int = 12345, greedy: bool = False, pair: bool = False,
+             trading: bool = False) -> dict:
     """Win rate and VP of `net` in one seat (rotating by env), or two opposite seats, against `opponent`.
 
     Fully determined by `seed`: the same boards, dev decks and dice sequences every call (the engine keeps
@@ -35,14 +36,14 @@ def evaluate(net: PolicyNet, opponent: str | PolicyNet = "heuristic", games: int
     dev = next(net.parameters()).device
     with torch.random.fork_rng(devices=[dev] if dev.type == "cuda" else []):
         torch.manual_seed(seed)
-        return _evaluate(net, opponent, games, n_players, random_board, seed, greedy, pair)
+        return _evaluate(net, opponent, games, n_players, random_board, seed, greedy, pair, trading)
 
 
 def _evaluate(net, opponent, games: int, n_players: int, random_board: bool, seed: int, greedy: bool,
-              pair: bool) -> dict:
+              pair: bool, trading: bool) -> dict:
     assert not pair or n_players == 4, "pair evaluation needs 4 players"
     N = min(games, 256)
-    env = VecEnv(N, seed=seed, n_players=n_players, random_board=random_board)
+    env = VecEnv(N, seed=seed, n_players=n_players, random_board=random_board, trading=trading)
     learner = np.zeros((N, 4), np.bool_)  # [env, seat] held by the policy
     for i in range(N):
         seats = [i % 2, i % 2 + 2] if pair else [i % n_players]
@@ -117,11 +118,12 @@ def main() -> None:
     ap.add_argument("--random-board", action="store_true")
     ap.add_argument("--replays", type=int, default=0)
     ap.add_argument("--pair", action="store_true", help="two policy seats (opposite) vs two opponents")
+    ap.add_argument("--trading", action="store_true", help="allow player-to-player trading")
     args = ap.parse_args()
     net = load(args.checkpoint)
     opp = args.opponent if args.opponent in ("heuristic", "random") else load(args.opponent)
     res = evaluate(net, opp, games=args.games, n_players=args.players, greedy=args.greedy,
-                   random_board=args.random_board, pair=args.pair)
+                   random_board=args.random_board, pair=args.pair, trading=args.trading)
     print(json.dumps(res, indent=2))
     print(f"(chance level: {(2 if args.pair else 1) / args.players:.3f})")
     if args.replays:

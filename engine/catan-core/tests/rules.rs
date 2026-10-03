@@ -311,7 +311,7 @@ fn check_invariants(s: &State, played_dev: u32) {
 
 /// A state in the main phase with chosen hands (seat 0 to move).
 fn main_phase(n: u8, hands: &[[u8; 5]]) -> State {
-    let mut s = State::new(cfg(n), 3);
+    let mut s = State::new(Config { trading: true, ..cfg(n) }, 3);
     s.phase = Phase::Main;
     s.rolled = true;
     s.cur = 0;
@@ -350,6 +350,15 @@ fn trade_offer_flow() {
 }
 
 #[test]
+fn trading_off_by_default() {
+    let mut s = main_phase(4, &[[2, 2, 2, 2, 2], [0; 5], [0; 5], [0; 5]]);
+    assert!(s.is_legal(PROPOSE_TRADE));
+    s.cfg.trading = false;
+    assert!(!Config::default().trading);
+    assert!(!s.is_legal(PROPOSE_TRADE));
+}
+
+#[test]
 fn trade_offers_are_limited_per_turn() {
     let mut s = main_phase(3, &[[5, 0, 0, 0, 0], [0, 5, 0, 0, 0], [0, 5, 0, 0, 0]]);
     s.try_step(PROPOSE_TRADE).unwrap();
@@ -371,7 +380,7 @@ fn stress(games: u64, heuristic_mix: bool, random_board: bool) {
     let mut decided = 0;
     for g in 0..games {
         let n = 2 + (g % 3) as u8;
-        let mut s = State::new(Config { random_board, ..cfg(n) }, g);
+        let mut s = State::new(Config { random_board, trading: g % 2 == 1, ..cfg(n) }, g);
         let mut rng = Rng::new(g ^ 99);
         let mut played = 0;
         let mut steps = 0;

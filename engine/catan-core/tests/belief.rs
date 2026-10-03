@@ -71,7 +71,8 @@ fn beliefs_track_true_hands() {
     let (mut pruned, mut resets) = (0u32, 0u32);
     for g in 0..3000u64 {
         let n = 2 + (g % 3) as u8;
-        let mut s = State::new(Config { n_players: n, max_turns: 1000, random_board: g % 2 == 0, ..Config::default() }, g);
+        let cfg = Config { n_players: n, max_turns: 1000, random_board: g % 2 == 0, trading: g % 3 != 0, ..Config::default() };
+        let mut s = State::new(cfg, g);
         let mut b = Beliefs::new(&s);
         let mut rng = Rng::new(g ^ 7);
         while !s.is_over() {

@@ -63,10 +63,10 @@ def classify(st: np.ndarray) -> np.ndarray:
 
 @torch.inference_mode()
 def selfplay_stats(net: PolicyNet, games: int, seed: int = 4242, random_board: bool = False,
-                   n_players: int = 4) -> np.ndarray:
+                   n_players: int = 4, trading: bool = False) -> np.ndarray:
     """Play `games` self-play games; returns stats [games * n_players, len(STAT_NAMES)]."""
     N = min(games, 256)
-    env = VecEnv(N, seed=seed, n_players=n_players, random_board=random_board)
+    env = VecEnv(N, seed=seed, n_players=n_players, random_board=random_board, trading=trading)
     obs = np.zeros((N, OBS_SIZE), np.float32)
     mask = np.zeros((N, N_ACTIONS), np.bool_)
     actor = np.zeros(N, np.int64)
@@ -106,7 +106,7 @@ def summarize(st: np.ndarray) -> dict:
     return out
 
 
-def analyze(run: str, games: int, random_board: bool, device: str = "cpu") -> list[dict]:
+def analyze(run: str, games: int, random_board: bool, device: str = "cpu", trading: bool = False) -> list[dict]:
     rdir = Path("runs") / run
     cache_path = rdir / "strategy.csv"
     cache = {}
@@ -124,7 +124,7 @@ def analyze(run: str, games: int, random_board: bool, device: str = "cpu") -> li
         if key in cache and int(cache[key]["steps"]) == meta.get("steps", 0) and int(cache[key]["games"]) == games:
             rows.append({k: (float(v) if k not in ("checkpoint",) else v) for k, v in cache[key].items()})
             continue
-        st = selfplay_stats(load(ck).to(device), games, random_board=random_board)
+        st = selfplay_stats(load(ck).to(device), games, random_board=random_board, trading=trading)
         row = {"checkpoint": key, "steps": meta.get("steps", 0), "games": games, **summarize(st)}
         rows.append(row)
         write_cache(cache_path, rows)  # after every snapshot, so an interrupted run keeps its progress
@@ -210,7 +210,7 @@ def main() -> None:
     ap.add_argument("--device", default="cpu")
     args = ap.parse_args()
     cfg = json.loads((Path("runs") / args.run / "config.json").read_text())
-    rows = analyze(args.run, args.games, cfg.get("random_board", False), args.device)
+    rows = analyze(args.run, args.games, cfg.get("random_board", False), args.device, cfg.get("trading", False))
     print(f"saved {plot(args.run, rows)}")
 
 

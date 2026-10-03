@@ -57,6 +57,7 @@ class Config:
     total_steps: float = 1e9
     frac_heuristic: float = 0.25
     frac_selfplay: float = 0.25
+    trading: bool = False  # player-to-player trading (off: the trade actions are never legal)
     # ppo
     lr: float = 3e-4
     warmup_steps: float = 5e5  # linear LR warmup over this many samples, then constant
@@ -80,7 +81,7 @@ class Config:
     eval_every: int = 20
     eval_games: int = 400
     eval_both_boards: bool = True  # also evaluate on the other board type (generalisation curve)
-    eval_pair: bool = True  # also evaluate two policy seats vs two heuristic bots (they can trade; chance 50%)
+    eval_pair: bool = False  # also evaluate two policy seats vs two heuristic bots (they can trade; chance 50%)
     threads: int = 0
     resume: str = ""
     # hardware: "cpu" or "cuda"; amp = fp16 autocast (cuda only, ~1.5x for the GNN on a T4)
@@ -192,7 +193,8 @@ class Trainer:
             self.best_wr = ck.get("best_wr", -1.0)
 
         N = cfg.num_envs
-        self.env = VecEnv(N, seed=cfg.seed * 1_000_003, n_players=cfg.n_players, random_board=cfg.random_board)
+        self.env = VecEnv(N, seed=cfg.seed * 1_000_003, n_players=cfg.n_players, random_board=cfg.random_board,
+                          trading=cfg.trading)
         self.n_heur = int(N * cfg.frac_heuristic)
         self.n_self = int(N * cfg.frac_selfplay)
         self.ctrl = np.zeros((N, 4), np.int64)
@@ -494,18 +496,18 @@ class Trainer:
             if self.iter % cfg.eval_every == 0:
                 te = time.perf_counter()
                 ev = evaluate(self.net, "heuristic", games=cfg.eval_games, n_players=cfg.n_players,
-                              random_board=cfg.random_board, seed=10_000)  # same games every eval
+                              random_board=cfg.random_board, seed=10_000, trading=cfg.trading)  # same games every eval
                 row["eval_wr_heuristic"] = round(ev["win_rate"], 3)
                 row["eval_vp"] = round(ev["avg_vp"], 2)
                 if cfg.eval_both_boards:
                     other = "beginner" if cfg.random_board else "random"
                     ev2 = evaluate(self.net, "heuristic", games=cfg.eval_games, n_players=cfg.n_players,
-                                   random_board=not cfg.random_board, seed=10_000)
+                                   random_board=not cfg.random_board, seed=10_000, trading=cfg.trading)
                     row[f"eval/{other}_board/win_rate"] = round(ev2["win_rate"], 3)
                     row[f"eval/{other}_board/vp"] = round(ev2["avg_vp"], 2)
                 if cfg.eval_pair and cfg.n_players == 4:
                     ev3 = evaluate(self.net, "heuristic", games=cfg.eval_games, n_players=4,
-                                   random_board=cfg.random_board, seed=10_000, pair=True)
+                                   random_board=cfg.random_board, seed=10_000, pair=True, trading=cfg.trading)
                     row["eval/pair/win_rate"] = round(ev3["win_rate"], 3)
                     row["eval/pair/vp"] = round(ev3["avg_vp"], 2)
                     row["eval/pair/trades"] = round(ev3["trades"], 2)

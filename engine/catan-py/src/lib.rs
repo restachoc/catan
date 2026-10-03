@@ -19,11 +19,11 @@ const SEAT_EXTERNAL: u8 = 0;
 const SEAT_RANDOM: u8 = 1;
 const SEAT_HEURISTIC: u8 = 2;
 
-fn make_config(n_players: u8, vp_target: u8, random_board: bool, max_turns: u16) -> PyResult<Config> {
+fn make_config(n_players: u8, vp_target: u8, random_board: bool, max_turns: u16, trading: bool) -> PyResult<Config> {
     if !(2..=4).contains(&n_players) {
         return Err(PyValueError::new_err("n_players must be 2..=4"));
     }
-    Ok(Config { n_players, vp_target, random_board, max_turns })
+    Ok(Config { n_players, vp_target, random_board, max_turns, trading })
 }
 
 fn bot_action(kind: u8, s: &State, rng: &mut Rng) -> usize {
@@ -49,9 +49,9 @@ struct Game {
 #[pymethods]
 impl Game {
     #[new]
-    #[pyo3(signature = (seed=0, n_players=4, vp_target=10, random_board=false, max_turns=500))]
-    fn new(seed: u64, n_players: u8, vp_target: u8, random_board: bool, max_turns: u16) -> PyResult<Self> {
-        let cfg = make_config(n_players, vp_target, random_board, max_turns)?;
+    #[pyo3(signature = (seed=0, n_players=4, vp_target=10, random_board=false, max_turns=500, trading=false))]
+    fn new(seed: u64, n_players: u8, vp_target: u8, random_board: bool, max_turns: u16, trading: bool) -> PyResult<Self> {
+        let cfg = make_config(n_players, vp_target, random_board, max_turns, trading)?;
         let state = State::new(cfg, seed);
         let beliefs = Box::new(Beliefs::new(&state));
         Ok(Game { state, beliefs, seed, history: vec![], bot_rng: Rng::new(seed ^ 0x5EED) })
@@ -226,9 +226,9 @@ impl VecEnv {
 #[pymethods]
 impl VecEnv {
     #[new]
-    #[pyo3(signature = (num_envs, seed=0, n_players=4, vp_target=10, random_board=false, max_turns=500))]
-    fn new(num_envs: usize, seed: u64, n_players: u8, vp_target: u8, random_board: bool, max_turns: u16) -> PyResult<Self> {
-        let cfg = make_config(n_players, vp_target, random_board, max_turns)?;
+    #[pyo3(signature = (num_envs, seed=0, n_players=4, vp_target=10, random_board=false, max_turns=500, trading=false))]
+    fn new(num_envs: usize, seed: u64, n_players: u8, vp_target: u8, random_board: bool, max_turns: u16, trading: bool) -> PyResult<Self> {
+        let cfg = make_config(n_players, vp_target, random_board, max_turns, trading)?;
         let slots = (0..num_envs)
             .map(|i| {
                 let s = Self::game_seed(seed, i, 0);
@@ -503,7 +503,7 @@ impl AzPool {
     #[allow(clippy::too_many_arguments)]
     fn new(num_games: usize, seed: u64, n_players: u8, random_board: bool, max_turns: u16, sims: u32, c_puct: f32,
            dirichlet_alpha: f32, noise_frac: f32, temp_moves: u32, record: bool) -> PyResult<Self> {
-        let cfg = make_config(n_players, 10, random_board, max_turns)?;
+        let cfg = make_config(n_players, 10, random_board, max_turns, false)?;
         let mcts = MctsConfig { sims, c_puct, dirichlet_alpha, noise_frac, ..MctsConfig::default() };
         let mut games: Vec<AzGame> =
             (0..num_games).map(|i| Self::new_game(cfg, seed + i as u64, [SEAT_SEARCH; 4])).collect();
@@ -726,7 +726,7 @@ fn action_names() -> Vec<String> {
 #[pyo3(signature = (seats, games, seed=0, random_board=false))]
 fn bot_tournament(py: Python<'_>, seats: Vec<String>, games: u64, seed: u64, random_board: bool) -> PyResult<Vec<u64>> {
     let n = seats.len();
-    let cfg = make_config(n as u8, 10, random_board, 500)?;
+    let cfg = make_config(n as u8, 10, random_board, 500, false)?;
     let kinds: Vec<u8> = seats
         .iter()
         .map(|s| if s == "random" { SEAT_RANDOM } else { SEAT_HEURISTIC })
