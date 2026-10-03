@@ -1,4 +1,4 @@
-//! Fast Settlers of Catan rules engine (base game, no player-to-player trading yet).
+//! Fast Settlers of Catan rules engine (base game with player-to-player trading).
 
 pub mod actions;
 pub mod belief;

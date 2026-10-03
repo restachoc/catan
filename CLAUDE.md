@@ -68,8 +68,8 @@ The bot is built in versions of increasing difficulty:
 |---|---|---|---|
 | v1 | fixed beginner board | none (bank/port only) | **current**: PPO diagnostic run `diag` beats the heuristic bot 43% of the time (chance = 25%); long run not started |
 | v2 | random boards | none | the flat MLP fails here (runs 3 and 4); the GNN (`--arch gnn`) reaches 8.7% at d64 (run 5), 13.4% at d128 (run 6) and 15.0% with 7 rounds (run 7, within noise) after 6M steps on a Colab T4, still below chance; next: longer GNN runs |
-| v3 | either | bots accept/reject the human's offers | not started |
-| v4 | either | bots propose structured trades | not started |
+| v3 | either | bots accept/reject offers | rules, UI and training support done (2026-10-03); no run yet |
+| v4 | either | bots propose structured trades | same implementation as v3 (1:1, 2:1, 1:2 offers); no run yet |
 
 Default game: 4 players (the human + 3 bots), configurable from 2 to 4.
 
@@ -123,7 +123,7 @@ Always use the venv (`.venv/bin/...`). Rust is installed via rustup; run `source
 
 ```bash
 .venv/bin/maturin develop --release                       # REQUIRED after any Rust change (see gotchas)
-cd engine && cargo test -p catan-core --release           # 22 tests, ~1 s
+cd engine && cargo test -p catan-core --release           # 24 tests, ~1 s
 cd engine && cargo test -p catan-core --release -- --ignored   # 100k-game invariant stress test, ~20 s
 cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python -m catan_rl.smoke                        # bindings end to end
@@ -232,20 +232,29 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
 - Longest Road (LR) is ≥5, broken by opponent settlements, and the holder keeps it on ties. If the holder
   drops and others tie, nobody holds it. Largest Army (LA) is ≥3 knights and strictly more than the holder.
 - `max_turns` (default 500) ends the game as a draw (`winner = -1`).
-- No player-to-player trading yet. Its action ids don't exist yet; adding them changes `N_ACTIONS` (see below).
+- Player-to-player trading, after rolling: `PROPOSE_TRADE` (at most 3 per turn, counted even if cancelled), then
+  the terms (`OFFER`: give 1 get 1, give 2 get 1 or give 1 get 2, single resource types) or cancel. Every opponent
+  answers in turn order (accept only if it can pay); with any accepter, the proposer picks one or cancels. Offering
+  is one main-phase action so that the 60 sets of terms don't crowd out everything else for an untrained policy.
+- The built-in bots (heuristic and random) never offer and always decline, so against them trading can't help:
+  evaluation vs the heuristic doesn't measure it. `game/offers` and `game/trades` track it in training games.
+  `random_any_action` (trading included) drives the rule tests.
 - The heuristic bot (`bots.rs`) is greedy and rule-based: city > settlement > useful dev card > road toward a
   new spot > one-card bank trade > buy dev card > end turn. It never blocks leaders or plans ahead, but it
   plays any board equally well, which makes it a fair yardstick for random boards.
 
 ## Action space and observation
 
-- Flat action space, `N_ACTIONS = 253`. Offsets are in `actions.rs`: ROLL 0, END_TURN 1, SETTLE 2+v,
+- Flat action space, `N_ACTIONS = 321`. Offsets are in `actions.rs`: ROLL 0, END_TURN 1, SETTLE 2+v,
   CITY 56+v, ROAD 110+e, BUY_DEV 182, PLAY_KNIGHT 183, PLAY_ROAD_BUILDING 184, MONOPOLY 185+r,
   YOP 190+pair (15 unordered pairs), MOVE_ROBBER 205+h, STEAL 224+k (k = seats after the current
-  player), DISCARD 228+r, TRADE 233 + give*4 + (get index skipping give).
+  player), DISCARD 228+r, TRADE 233 + give*4 + (get index skipping give), OFFER 253 + kind*20 + pair,
+  ACCEPT_OFFER 313, DECLINE_OFFER 314, CHOOSE_PARTNER 315+k, CANCEL_OFFER 319, PROPOSE_TRADE 320.
+  The legal-action bitset (`Mask`) is sized from `N_ACTIONS`.
 - Resources are indexed 0 wood, 1 brick, 2 wool, 3 grain, 4 ore, 5 desert. Port type 5 = 3:1.
 - The observation (`OBS_SIZE = 1312`) is **actor-relative**: seat 0 is always the acting player. Blocks: 19 hexes
-  × 8, 54 vertices × 14, 72 edges × 4, 4 players × 16, own hand/dev cards/ratios 21, globals 31. Opponents are
+  × 8, 54 vertices × 14, 72 edges × 4, 4 players × 16, own hand/dev cards/ratios 21, globals 53 (incl. the open
+  offer: give/get counts, offers made, proposer and accepters by seat). Opponents are
   encoded with public info (card counts, dev-card counts, not contents) plus the actor's **expected resource
   counts** of every hand from card counting (`belief.rs`).
 - Card counting: every resource movement is public except robber steals. Each seat keeps up to 128 possible
@@ -253,9 +262,11 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
   have lost, other changes filter out impossible worlds (negative counts, Monopoly amounts). `VecEnv` and `Game`
   track it; search (`AzPool`, MCTS leaves) passes exact hands via `exact_hands`, as it treats hands as known.
   Uncertainty is common (a third of observer-moments in bot games); costs ~30% raw engine speed, ~7% training
-  speed on this CPU.
+  speed on this CPU. Rarely (~1 in 1500 games with random traders) the cap prunes the true hands and that seat
+  restarts from them.
 - Python derives offsets from action names (`catan_rl.ACTIONS`) and the web UI fetches them from `/api/meta`.
-  **But `ui.js` duplicates the YOP pair order and the `tradeId` formula**, so update both if the layout changes.
+  **But `ui.js` duplicates the YOP pair order, the `tradeId` formula and the offer layout (`OFFER_KINDS`,
+  `offerId`)**, so update them if the layout changes.
 
 ## Networks
 
@@ -275,8 +286,8 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
   [gpu-batch-size-and-precision](findings/gpu-batch-size-and-precision.md).
 - Policy logits are masked in fp32 (`NEG_INF = -1e9` overflows fp16).
 - **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint.** `web/server.py` skips incompatible
-  `runs/*/best.pt` with a message. Runs 1–8 and az1 predate card counting (OBS_SIZE 1292): they can't be evaluated
-  or played with the current engine; their cached results (`generalization.json`, `strategy.csv`) stay valid.
+  `runs/*/best.pt` with a message. Runs 1–9 and az1 predate trading (N_ACTIONS 253; runs 1–8 also OBS_SIZE 1292):
+  they can't be evaluated or played with the current engine; their cached results (`generalization.json`, `strategy.csv`) stay valid.
 
 ## PPO training (ppo.py)
 

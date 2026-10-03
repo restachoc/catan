@@ -239,6 +239,7 @@ pub fn state_key(s: &State) -> u64 {
         s.winner as u8,
     ]));
     mix(s.turn as u64 | (s.discarder as u64) << 16 | (s.longest_road as u8 as u64) << 24 | (s.largest_army as u8 as u64) << 32);
+    mix(u64::from_le_bytes([s.offer, s.offers_made, s.responder, s.accepted, 0, 0, 0, 0]));
     h
 }
 

@@ -13,6 +13,13 @@ let replay = null;       // {frames, log, i, timer}
 const YOP_PAIRS = [];
 for (let a = 0; a < 5; a++) for (let b = a; b < 5; b++) YOP_PAIRS.push([a, b]);
 const tradeId = (give, get) => A.TRADE + give * 4 + (get > give ? get - 1 : get);
+// Player offers: kind 0 = 1:1, 1 = give 2 get 1, 2 = give 1 get 2 (mirrors offer_terms in actions.rs).
+const OFFER_KINDS = [[1, 1], [2, 1], [1, 2]];
+const offerId = (kind, give, get) => A.OFFER + kind * 20 + give * 4 + (get > give ? get - 1 : get);
+const offerText = (o) => {
+  const side = (v) => v.map((c, r) => (c ? `${c} ${RES_NAMES[r]}` : "")).filter(Boolean).join(" + ");
+  return `${side(o.give)} for ${side(o.get)}`;
+};
 const DEV_NAMES = ["Knight", "Victory Pt", "Road Build", "Year of Plenty", "Monopoly"];
 
 async function init() {
@@ -134,14 +141,16 @@ function renderControls(st, legal) {
     html += button("Road building", A.PLAY_ROAD_BUILDING, legal);
     html += `<button data-pick="monopoly" ${has(A.PLAY_MONOPOLY, A.PLAY_YOP) ? "" : "disabled"}>Monopoly</button>`;
     html += `<button data-pick="yop" ${has(A.PLAY_YOP, A.MOVE_ROBBER) ? "" : "disabled"}>Year of plenty</button>`;
-    html += `<button data-pick="trade" ${has(A.TRADE, A.N_ACTIONS) ? "" : "disabled"}>Bank trade</button>`;
+    html += `<button data-pick="trade" ${has(A.TRADE, A.OFFER) ? "" : "disabled"}>Bank trade</button>`;
+    html += button("Offer trade", A.PROPOSE_TRADE, legal);
     html += button("End turn ⏎", A.END_TURN, legal, 'class="primary"');
   }
   c.innerHTML = html;
   c.querySelectorAll("button[data-a]").forEach((b) => (b.onclick = () => send(Number(b.dataset.a))));
   c.querySelectorAll("button[data-pick]").forEach((b) => (b.onclick = () => { picker = { kind: b.dataset.pick, sel: [] }; renderPicker(st, legal); }));
-  if (st.phase === "Discard" || st.phase === "Steal") picker = { kind: st.phase.toLowerCase(), sel: [] };
-  else if (picker && !["monopoly", "yop", "trade"].includes(picker.kind)) picker = null;
+  if (["Discard", "Steal", "OfferTerms", "TradeRespond", "TradeChoose"].includes(st.phase)) {
+    if (picker?.kind !== st.phase.toLowerCase()) picker = { kind: st.phase.toLowerCase(), sel: [] };
+  } else if (picker && !["monopoly", "yop", "trade"].includes(picker.kind)) picker = null;
   renderPicker(st, legal);
 }
 
@@ -190,18 +199,48 @@ function renderPicker(st, legal) {
       <div class="row" id="get-row"><span class="label">Get</span>${give == null ? "<i style='color:var(--muted)'>choose what to give</i>" : resButtons((r) => r !== give && legal.has(tradeId(give, r)))}</div>`;
     el.querySelectorAll(".row:first-child .res-btn").forEach((b) => (b.onclick = () => { picker.sel = [Number(b.dataset.r)]; renderPicker(st, legal); }));
     el.querySelectorAll("#get-row .res-btn").forEach((b) => (b.onclick = () => send(tradeId(give, Number(b.dataset.r)))));
+  } else if (picker.kind === "offerterms") {
+    const kind = picker.offerKind ?? 0;
+    const [gn, rn] = OFFER_KINDS[kind];
+    const give = picker.sel[0];
+    el.innerHTML = `<div class="row" id="kind-row"><span class="label">Terms</span>${OFFER_KINDS.map(([a, b], k) =>
+        `<button data-k="${k}" class="${k === kind ? "sel" : ""}">${a}:${b}</button>`).join("")}</div>
+      <div class="row" id="give-row"><span class="label">Give ${gn}</span>${resButtons((r) => [0, 1, 2, 3, 4].some((g) => g !== r && legal.has(offerId(kind, r, g))), null, give != null ? [give] : [])}</div>
+      <div class="row" id="get-row"><span class="label">Get ${rn}</span>${give == null ? "<i style='color:var(--muted)'>choose what to give</i>" : resButtons((r) => r !== give && legal.has(offerId(kind, give, r)))}</div>
+      <div class="row">${button("Cancel", A.CANCEL_OFFER, legal)}</div>
+      <div class="row" style="color:var(--muted);font-size:12px">Offered to everyone; you pick among those who accept. ${3 - (st.offers_made ?? 0)} more offer(s) this turn.</div>`;
+    el.querySelectorAll("button[data-a]").forEach((b) => (b.onclick = () => send(Number(b.dataset.a))));
+    el.querySelectorAll("#kind-row button").forEach((b) => (b.onclick = () => { picker.offerKind = Number(b.dataset.k); picker.sel = []; renderPicker(st, legal); }));
+    el.querySelectorAll("#give-row .res-btn").forEach((b) => (b.onclick = () => { picker.sel = [Number(b.dataset.r)]; renderPicker(st, legal); }));
+    el.querySelectorAll("#get-row .res-btn").forEach((b) => (b.onclick = () => send(offerId(kind, give, Number(b.dataset.r)))));
+  } else if (picker.kind === "traderespond" && st.offer) {
+    el.innerHTML = `<div class="row">${names[st.offer.from]} offers ${offerText(st.offer)}</div><div class="row">` +
+      button("Accept", A.ACCEPT_OFFER, legal, 'class="primary"') + button("Decline", A.DECLINE_OFFER, legal) + "</div>";
+    el.querySelectorAll("button[data-a]").forEach((b) => (b.onclick = () => send(Number(b.dataset.a))));
+  } else if (picker.kind === "tradechoose" && st.offer) {
+    const n = st.n_players;
+    el.innerHTML = `<div class="row">Trade ${offerText(st.offer)} with:</div><div class="row">` +
+      [1, 2, 3].filter((k) => legal.has(A.CHOOSE_PARTNER + k)).map((k) => {
+        const p = (st.actor + k) % n;
+        return `<button data-a="${A.CHOOSE_PARTNER + k}" style="border-color:${PLAYER_COLORS[p]}">${names[p]}</button>`;
+      }).join("") + button("Cancel", A.CANCEL_OFFER, legal) + "</div>";
+    el.querySelectorAll("button[data-a]").forEach((b) => (b.onclick = () => send(Number(b.dataset.a))));
   }
 }
 
 function renderPrompt(st, legal) {
   const p = $("prompt");
   if (replay || st.phase === "GameOver") { p.textContent = ""; return; }
-  if (!legal.size) { p.textContent = `${names[st.actor]} is thinking…`; return; }
+  if (!legal.size) {
+    p.textContent = st.offer ? `${names[st.offer.from]} offers ${offerText(st.offer)}: ${names[st.actor]} is answering…` : `${names[st.actor]} is thinking…`;
+    return;
+  }
   const msg = {
     SetupSettlement: "Place a settlement", SetupRoad: "Place a road next to it",
     Roll: "Roll the dice (or play a knight)", Main: "Build, trade, or end your turn",
     Discard: `Discard ${st.discard_need[st.actor]} card(s)`, MoveRobber: "Move the robber",
     Steal: "Choose who to steal from", RoadBuilding: `Place ${st.free_roads} free road(s)`,
+    OfferTerms: "Choose what to offer", TradeRespond: "Accept or decline the offer", TradeChoose: "Pick a trading partner (or cancel)",
   }[st.phase];
   p.textContent = msg || "";
 }

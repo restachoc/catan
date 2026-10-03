@@ -3,6 +3,7 @@
 //! actor can deduce about their hands by card counting (`belief.rs`; callers without a tracker pass the
 //! exact hands, which is what search assumes anyway).
 
+use crate::actions::*;
 use crate::board::*;
 use crate::state::*;
 use crate::topology::*;
@@ -12,7 +13,9 @@ const VERT_F: usize = 2 * MAX_P + 6; // settlement/city per seat, port one-hot (
 const EDGE_F: usize = MAX_P;
 const PLAYER_F: usize = 16; // 11 public stats + expected resource counts (5)
 const SELF_F: usize = 21;
-const GLOBAL_F: usize = N_PHASES + 4 + 11 + 5 + 2;
+const GLOBAL_F: usize = N_PHASES + 4 + 11 + 5 + 2 + OFFER_F;
+/// Open offer: give counts (5), get counts (5), offers made this turn, proposer and accepters by seat (4 + 4).
+const OFFER_F: usize = 19;
 
 pub const OBS_SIZE: usize =
     N_HEX * HEX_F + N_VERT * VERT_F + N_EDGE * EDGE_F + MAX_P * PLAYER_F + SELF_F + GLOBAL_F;
@@ -121,4 +124,17 @@ pub fn write_obs(s: &State, hands: &[[f32; 5]; MAX_P], out: &mut [f32]) {
     g += 5;
     f[g] = s.dev_deck_len as f32 / 25.0;
     f[g + 1] = s.turn as f32 / 200.0;
+    g += 2;
+    if matches!(s.phase, Phase::TradeRespond | Phase::TradeChoose) {
+        let (give, gn, get, rn) = offer_terms(s.offer as usize);
+        f[g + give] = gn as f32 / 2.0;
+        f[g + 5 + get] = rn as f32 / 2.0;
+        f[g + 11 + seat(s.cur as usize)] = 1.0;
+        for q in 0..n {
+            if s.accepted >> q & 1 == 1 {
+                f[g + 15 + seat(q)] = 1.0;
+            }
+        }
+    }
+    f[g + 10] = s.offers_made as f32 / MAX_OFFERS as f32;
 }

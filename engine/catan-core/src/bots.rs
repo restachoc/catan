@@ -1,5 +1,6 @@
 //! Baseline bots: uniform-random over legal actions, and a greedy rule-based heuristic.
 //! They serve as test drivers, opponents for early training and fixed evaluation benchmarks.
+//! Neither trades with other players: they never offer and always decline.
 
 use crate::actions::*;
 use crate::board::*;
@@ -7,11 +8,22 @@ use crate::rng::Rng;
 use crate::state::*;
 use crate::topology::*;
 
+/// Uniform over legal actions, excluding player-to-player offers and accepting them.
 pub fn random_action(s: &State, rng: &mut Rng) -> usize {
-    let m = s.legal_mask();
+    let mut m = s.legal_mask();
+    for a in [PROPOSE_TRADE, ACCEPT_OFFER] {
+        m[a >> 6] &= !(1 << (a & 63));
+    }
     let n = mask_count(&m);
     debug_assert!(n > 0);
     let k = rng.below(n) as usize;
+    mask_iter(&m).nth(k).unwrap()
+}
+
+/// Uniform over all legal actions, trading included (a test driver for the trade rules).
+pub fn random_any_action(s: &State, rng: &mut Rng) -> usize {
+    let m = s.legal_mask();
+    let k = rng.below(mask_count(&m)) as usize;
     mask_iter(&m).nth(k).unwrap()
 }
 
@@ -157,6 +169,8 @@ pub fn heuristic_action(s: &State, rng: &mut Rng) -> usize {
             best_by(mask_iter(&m), |a| s.hand_total((p + a - STEAL) % s.n()) as f32).unwrap()
         }
         Phase::Main => heuristic_main(s, p, &m, &prod, rng),
+        Phase::TradeRespond => DECLINE_OFFER,
+        Phase::OfferTerms | Phase::TradeChoose => CANCEL_OFFER,
         Phase::GameOver => unreachable!("no action in a finished game"),
     }
 }

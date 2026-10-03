@@ -1,6 +1,6 @@
 use catan_core::actions::*;
 use catan_core::board::*;
-use catan_core::bots::{heuristic_action, random_action};
+use catan_core::bots::{heuristic_action, random_action, random_any_action};
 use catan_core::rng::Rng;
 use catan_core::state::*;
 use catan_core::topology::*;
@@ -70,7 +70,12 @@ fn board_composition() {
 
 #[test]
 fn action_space_layout() {
-    assert_eq!(N_ACTIONS, 253);
+    assert_eq!(N_ACTIONS, 321);
+    let mut seen = std::collections::HashSet::new();
+    for o in 0..60 {
+        let (g, gn, r, rn) = offer_terms(o);
+        assert!(g != r && (gn, rn) != (2, 2) && seen.insert((g, gn, r, rn)));
+    }
     for give in 0..5 {
         for get in 0..5 {
             if give != get {
@@ -291,6 +296,10 @@ fn check_invariants(s: &State, played_dev: u32) {
         assert!(s.knights[h] >= 3);
         assert!((0..n).all(|q| s.knights[q] <= s.knights[h]));
     }
+    assert!(s.offers_made <= MAX_OFFERS);
+    if s.phase == Phase::TradeRespond {
+        assert_ne!(s.responder, s.cur);
+    }
     if s.is_over() {
         if s.winner >= 0 {
             assert!(s.vp(s.winner as usize) >= s.cfg.vp_target as u32);
@@ -298,6 +307,63 @@ fn check_invariants(s: &State, played_dev: u32) {
     } else {
         assert!(mask_count(&s.legal_mask()) > 0, "no legal action in {:?}", s.phase);
     }
+}
+
+/// A state in the main phase with chosen hands (seat 0 to move).
+fn main_phase(n: u8, hands: &[[u8; 5]]) -> State {
+    let mut s = State::new(cfg(n), 3);
+    s.phase = Phase::Main;
+    s.rolled = true;
+    s.cur = 0;
+    for (p, h) in hands.iter().enumerate() {
+        for r in 0..5 {
+            s.bank[r] += s.hands[p][r];
+            s.bank[r] -= h[r];
+        }
+        s.hands[p] = *h;
+    }
+    s
+}
+
+#[test]
+fn trade_offer_flow() {
+    // Seat 0 offers 2 wood for 1 ore. Seat 1 has no ore (can only decline), seats 2 and 3 accept, seat 0 picks 3.
+    let mut s = main_phase(4, &[[2, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 1], [0, 0, 0, 0, 2]]);
+    let offer = (0..60).find(|&o| offer_terms(o) == (0, 2, 4, 1)).unwrap();
+    assert!(!s.is_legal(OFFER + offer), "terms come after proposing");
+    s.try_step(PROPOSE_TRADE).unwrap();
+    assert_eq!(s.phase, Phase::OfferTerms);
+    s.try_step(OFFER + offer).unwrap();
+    assert_eq!((s.phase, s.actor()), (Phase::TradeRespond, 1));
+    assert!(!s.is_legal(ACCEPT_OFFER), "seat 1 cannot pay");
+    s.try_step(DECLINE_OFFER).unwrap();
+    s.try_step(ACCEPT_OFFER).unwrap();
+    s.try_step(ACCEPT_OFFER).unwrap();
+    assert_eq!((s.phase, s.actor()), (Phase::TradeChoose, 0));
+    assert!(!s.is_legal(CHOOSE_PARTNER + 1) && s.is_legal(CHOOSE_PARTNER + 2) && s.is_legal(CHOOSE_PARTNER + 3));
+    s.try_step(CHOOSE_PARTNER + 3).unwrap();
+    assert_eq!(s.phase, Phase::Main);
+    assert_eq!(s.hands[0], [0, 0, 0, 0, 1]);
+    assert_eq!(s.hands[3], [2, 0, 0, 0, 1]);
+    assert_eq!(s.hands[2], [0, 0, 0, 0, 1], "the other accepter keeps its cards");
+    assert_eq!((s.trades[0], s.trades[3], s.trades[2]), (1, 1, 0));
+}
+
+#[test]
+fn trade_offers_are_limited_per_turn() {
+    let mut s = main_phase(3, &[[5, 0, 0, 0, 0], [0, 5, 0, 0, 0], [0, 5, 0, 0, 0]]);
+    s.try_step(PROPOSE_TRADE).unwrap();
+    s.try_step(CANCEL_OFFER).unwrap(); // a cancelled proposal still counts
+    for _ in 1..MAX_OFFERS {
+        s.try_step(PROPOSE_TRADE).unwrap();
+        s.try_step(OFFER).unwrap(); // 1 wood for 1 brick
+        s.try_step(DECLINE_OFFER).unwrap();
+        s.try_step(DECLINE_OFFER).unwrap();
+        assert_eq!(s.phase, Phase::Main, "nobody accepted");
+    }
+    assert!(!s.is_legal(PROPOSE_TRADE));
+    s.try_step(END_TURN).unwrap();
+    assert_eq!(s.offers_made, 0);
 }
 
 fn stress(games: u64, heuristic_mix: bool, random_board: bool) {
@@ -312,6 +378,8 @@ fn stress(games: u64, heuristic_mix: bool, random_board: bool) {
         while !s.is_over() {
             let a = if heuristic_mix && (s.actor() + g as usize) % 2 == 0 {
                 heuristic_action(&s, &mut rng)
+            } else if g % 2 == 1 {
+                random_any_action(&s, &mut rng) // exercises player-to-player trading
             } else {
                 random_action(&s, &mut rng)
             };

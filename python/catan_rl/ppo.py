@@ -420,6 +420,8 @@ class Trainer:
             "game/knights": float(p[:, S["knights"]].mean()),
             "game/cities": float(p[:, S["cities"]].mean()),
             "game/settlements": float(p[:, S["settlements"]].mean()),
+            "game/offers": float(p[:, S["offers"]].mean()),
+            "game/trades": float(p[:, S["trades"]].mean()),
         })
         labels = classify(p)
         for group, sel in (("all", np.ones(len(p), bool)), ("winners", won)):

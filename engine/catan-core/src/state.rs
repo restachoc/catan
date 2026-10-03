@@ -49,9 +49,15 @@ pub enum Phase {
     MoveRobber,
     Steal,
     RoadBuilding,
+    /// The proposer picks the terms of its offer (or cancels).
+    OfferTerms,
+    /// Opponents answer the open offer in turn order (the actor is `responder`).
+    TradeRespond,
+    /// The proposer picks one of the accepters or cancels.
+    TradeChoose,
     GameOver,
 }
-pub const N_PHASES: usize = 9;
+pub const N_PHASES: usize = 12;
 
 #[derive(Clone, Copy, Debug)]
 pub struct State {
@@ -88,8 +94,17 @@ pub struct State {
     pub discard_need: [u8; MAX_P],
     pub discarder: u8,
     pub last_roll: [u8; 2],
+    /// Open player-to-player offer (index into `offer_terms`), offers made this turn, the seat answering now
+    /// and the seats that accepted (bitmask).
+    pub offer: u8,
+    pub offers_made: u8,
+    pub responder: u8,
+    pub accepted: u8,
     /// Bookkeeping for strategy analysis (not part of the observation).
     pub dev_bought: [u8; MAX_P],
+    /// Offers made and player-to-player trades completed (either side).
+    pub offers: [u8; MAX_P],
+    pub trades: [u8; MAX_P],
     /// Pips per resource of each player's buildings right after setup.
     pub opening_pips: [[u8; 5]; MAX_P],
     pub winner: i8,
@@ -150,7 +165,13 @@ impl State {
             discard_need: [0; MAX_P],
             discarder: 0,
             last_roll: [0, 0],
+            offer: 0,
+            offers_made: 0,
+            responder: 0,
+            accepted: 0,
             dev_bought: [0; MAX_P],
+            offers: [0; MAX_P],
+            trades: [0; MAX_P],
             opening_pips: [[0; 5]; MAX_P],
             winner: -1,
         }
@@ -163,13 +184,13 @@ impl State {
         self.cfg.n_players as usize
     }
 
-    /// The player who must act now (differs from `cur` only while discarding).
+    /// The player who must act now (differs from `cur` only while discarding or answering an offer).
     #[inline]
     pub fn actor(&self) -> usize {
-        if self.phase == Phase::Discard {
-            self.discarder as usize
-        } else {
-            self.cur as usize
+        match self.phase {
+            Phase::Discard => self.discarder as usize,
+            Phase::TradeRespond => self.responder as usize,
+            _ => self.cur as usize,
         }
     }
 
@@ -299,7 +320,7 @@ impl State {
     // ---------------------------------------------------------------- legality
 
     pub fn legal_mask(&self) -> Mask {
-        let mut m: Mask = [0; 4];
+        let mut m: Mask = [0; MASK_WORDS];
         let p = self.actor();
         match self.phase {
             Phase::SetupSettlement => {
@@ -346,6 +367,33 @@ impl State {
                                 mask_set(&mut m, trade_id(give, get));
                             }
                         }
+                    }
+                }
+                if self.offers_made < MAX_OFFERS && self.hand_total(p) > 0 && self.n() > 1 {
+                    mask_set(&mut m, PROPOSE_TRADE);
+                }
+            }
+            Phase::OfferTerms => {
+                mask_set(&mut m, CANCEL_OFFER);
+                for o in 0..60 {
+                    let (give, gn, _, _) = offer_terms(o);
+                    if self.hands[p][give] >= gn {
+                        mask_set(&mut m, OFFER + o);
+                    }
+                }
+            }
+            Phase::TradeRespond => {
+                mask_set(&mut m, DECLINE_OFFER);
+                let (_, _, get, rn) = offer_terms(self.offer as usize);
+                if self.hands[p][get] >= rn {
+                    mask_set(&mut m, ACCEPT_OFFER);
+                }
+            }
+            Phase::TradeChoose => {
+                mask_set(&mut m, CANCEL_OFFER);
+                for k in 1..self.n() {
+                    if self.accepted >> ((p + k) % self.n()) & 1 == 1 {
+                        mask_set(&mut m, CHOOSE_PARTNER + k);
                     }
                 }
             }
@@ -475,13 +523,47 @@ impl State {
                 self.phase = self.return_phase();
             }
             a if a < TRADE => self.discard(p, a - DISCARD),
-            a if a < N_ACTIONS => {
+            a if a < OFFER => {
                 let (give, get) = trade_pair(a - TRADE);
                 let ratio = self.trade_ratios(p)[give];
                 self.hands[p][give] -= ratio;
                 self.bank[give] += ratio;
                 self.hands[p][get] += 1;
                 self.bank[get] -= 1;
+            }
+            a if a < ACCEPT_OFFER => {
+                self.offer = (a - OFFER) as u8;
+                self.offers[p] += 1;
+                self.accepted = 0;
+                self.responder = ((p + 1) % self.n()) as u8;
+                self.phase = Phase::TradeRespond;
+            }
+            ACCEPT_OFFER | DECLINE_OFFER => {
+                if a == ACCEPT_OFFER {
+                    self.accepted |= 1 << p;
+                }
+                let next = (p + 1) % self.n();
+                if next != self.cur as usize {
+                    self.responder = next as u8;
+                } else {
+                    self.phase = if self.accepted != 0 { Phase::TradeChoose } else { Phase::Main };
+                }
+            }
+            a if a < CANCEL_OFFER => {
+                let q = (p + a - CHOOSE_PARTNER) % self.n();
+                let (give, gn, get, rn) = offer_terms(self.offer as usize);
+                self.hands[p][give] -= gn;
+                self.hands[q][give] += gn;
+                self.hands[q][get] -= rn;
+                self.hands[p][get] += rn;
+                self.trades[p] += 1;
+                self.trades[q] += 1;
+                self.phase = Phase::Main;
+            }
+            CANCEL_OFFER => self.phase = Phase::Main,
+            PROPOSE_TRADE => {
+                self.offers_made += 1;
+                self.phase = Phase::OfferTerms;
             }
             _ => unreachable!(),
         }
@@ -708,6 +790,7 @@ impl State {
         self.dev_new[c] = [0; 5];
         self.dev_played = false;
         self.rolled = false;
+        self.offers_made = 0;
         self.cur = ((c + 1) % self.n()) as u8;
         self.turn += 1;
         self.phase = Phase::Roll;

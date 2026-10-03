@@ -59,6 +59,17 @@ pub struct StateView {
     /// Legal actions for the viewer, if it is their move.
     pub legal: Vec<u16>,
     pub trade_ratios: Option<[u8; 5]>,
+    /// The open player-to-player offer, while opponents answer it or the proposer picks a partner.
+    pub offer: Option<OfferView>,
+    pub offers_made: u8,
+}
+
+#[derive(Serialize)]
+pub struct OfferView {
+    pub from: u8,
+    pub give: [u8; 5],
+    pub get: [u8; 5],
+    pub accepted: Vec<u8>,
 }
 
 pub fn board_view(s: &State) -> BoardView {
@@ -118,5 +129,13 @@ pub fn state_view(s: &State, viewer: Option<usize>) -> StateView {
         players,
         legal: if my_move { mask_iter(&s.legal_mask()).map(|a| a as u16).collect() } else { vec![] },
         trade_ratios: viewer.map(|v| s.trade_ratios(v)),
+        offer: matches!(s.phase, Phase::TradeRespond | Phase::TradeChoose).then(|| {
+            let (g, gn, r, rn) = offer_terms(s.offer as usize);
+            let (mut give, mut get) = ([0; 5], [0; 5]);
+            give[g] = gn;
+            get[r] = rn;
+            OfferView { from: s.cur, give, get, accepted: (0..s.n() as u8).filter(|&q| s.accepted >> q & 1 == 1).collect() }
+        }),
+        offers_made: s.offers_made,
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::state::*;
 
-pub const STAT_NAMES: [&str; 21] = [
+pub const STAT_NAMES: [&str; 23] = [
     "won",
     "vp",
     "roads",
@@ -24,6 +24,8 @@ pub const STAT_NAMES: [&str; 21] = [
     "final_wool",
     "final_grain",
     "final_ore",
+    "offers",
+    "trades",
 ];
 pub const N_STATS: usize = STAT_NAMES.len();
 
@@ -45,5 +47,7 @@ pub fn player_stats(s: &State, p: usize) -> [f32; N_STATS] {
         out[11 + r] = s.opening_pips[p][r] as f32;
         out[16 + r] = fin[r] as f32;
     }
+    out[21] = s.offers[p] as f32;
+    out[22] = s.trades[p] as f32;
     out
 }

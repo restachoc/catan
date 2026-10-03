@@ -25,6 +25,12 @@ ACTIONS = {
     "STEAL": _first("steal:"),
     "DISCARD": _first("discard:"),
     "TRADE": _first("trade:"),
+    "OFFER": _first("offer:"),
+    "ACCEPT_OFFER": _first("accept_offer"),
+    "DECLINE_OFFER": _first("decline_offer"),
+    "CHOOSE_PARTNER": _first("choose_partner:"),
+    "CANCEL_OFFER": _first("cancel_offer"),
+    "PROPOSE_TRADE": _first("propose_trade"),
     "N_ACTIONS": N_ACTIONS,
 }
 

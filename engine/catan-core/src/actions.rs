@@ -18,10 +18,25 @@ pub const STEAL: usize = MOVE_ROBBER + N_HEX;
 pub const DISCARD: usize = STEAL + 4;
 /// Maritime (bank / port) trade: give resource `t / 4`, get the `t % 4`-th other resource.
 pub const TRADE: usize = DISCARD + 5;
-pub const N_ACTIONS: usize = TRADE + 20;
+/// Terms of an offer to all opponents, chosen after `PROPOSE_TRADE`: `kind * 20 + pair`, with `pair` as in `TRADE`
+/// (give resource, get resource) and kind 0 = give 1 get 1, 1 = give 2 get 1, 2 = give 1 get 2.
+pub const OFFER: usize = TRADE + 20;
+/// An opponent's answer to the open offer (accept only if it can pay).
+pub const ACCEPT_OFFER: usize = OFFER + 60;
+pub const DECLINE_OFFER: usize = ACCEPT_OFFER + 1;
+/// The proposer trades with the accepter `k` seats after it (k = 1..n-1; slot 0 unused), or cancels (also while
+/// choosing the terms).
+pub const CHOOSE_PARTNER: usize = DECLINE_OFFER + 1;
+pub const CANCEL_OFFER: usize = CHOOSE_PARTNER + 4;
+/// Start an offer (after rolling, at most `MAX_OFFERS` per turn): one main-phase choice, so that the 60 sets of
+/// terms don't crowd out everything else under an untrained policy.
+pub const PROPOSE_TRADE: usize = CANCEL_OFFER + 1;
+pub const N_ACTIONS: usize = PROPOSE_TRADE + 1;
+pub const MAX_OFFERS: u8 = 3;
 
 /// Legal-action bitset.
-pub type Mask = [u64; 4];
+pub const MASK_WORDS: usize = N_ACTIONS.div_ceil(64);
+pub type Mask = [u64; MASK_WORDS];
 
 #[inline]
 pub fn mask_set(m: &mut Mask, a: usize) {
@@ -35,7 +50,7 @@ pub fn mask_has(m: &Mask, a: usize) -> bool {
 
 pub fn mask_iter(m: &Mask) -> impl Iterator<Item = usize> {
     let m = *m;
-    (0..4).flat_map(move |w| crate::topology::bits64(m[w]).map(move |b| w * 64 + b))
+    (0..m.len()).flat_map(move |w| crate::topology::bits64(m[w]).map(move |b| w * 64 + b))
 }
 
 pub fn mask_count(m: &Mask) -> u32 {
@@ -66,6 +81,14 @@ pub fn trade_pair(t: usize) -> (usize, usize) {
     (give, if g >= give { g + 1 } else { g })
 }
 
+/// Terms of offer `o` (0..60): (give resource, give count, get resource, get count).
+#[inline]
+pub fn offer_terms(o: usize) -> (usize, u8, usize, u8) {
+    let (give, get) = trade_pair(o % 20);
+    let (gn, rn) = [(1, 1), (2, 1), (1, 2)][o / 20];
+    (give, gn, get, rn)
+}
+
 #[inline]
 pub fn trade_id(give: usize, get: usize) -> usize {
     TRADE + give * 4 + if get > give { get - 1 } else { get }
@@ -91,10 +114,19 @@ pub fn action_name(a: usize) -> String {
         a if a < STEAL => format!("robber@h{}", a - MOVE_ROBBER),
         a if a < DISCARD => format!("steal:+{}", a - STEAL),
         a if a < TRADE => format!("discard:{}", R[a - DISCARD]),
-        a if a < N_ACTIONS => {
+        a if a < OFFER => {
             let (g, r) = trade_pair(a - TRADE);
             format!("trade:{}->{}", R[g], R[r])
         }
+        a if a < ACCEPT_OFFER => {
+            let (g, gn, r, rn) = offer_terms(a - OFFER);
+            format!("offer:{gn}{}->{rn}{}", R[g], R[r])
+        }
+        ACCEPT_OFFER => "accept_offer".into(),
+        DECLINE_OFFER => "decline_offer".into(),
+        a if a < CANCEL_OFFER => format!("choose_partner:+{}", a - CHOOSE_PARTNER),
+        CANCEL_OFFER => "cancel_offer".into(),
+        PROPOSE_TRADE => "propose_trade".into(),
         _ => format!("invalid({a})"),
     }
 }
