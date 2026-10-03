@@ -5,10 +5,6 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 10 (trading) finished training** but its zip hadn't arrived by 22:25 (the strategy step runs after training).
-  If `~/Downloads/gnn128-trade-randboard.zip` appears: unzip, delete the zip, run `runtime.unassign()` on Colab
-  (otherwise check the Colab tab and release the runtime). Results are written up from W&B
-  ([finding](../findings/trading-first-run.md)).
 - **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
   1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
