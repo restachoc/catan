@@ -5,6 +5,11 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
+- **Run 10 (`gnn128-trade-randboard`) is training on Colab** with `--wandb` (launched 2026-10-03 ~21:15): run 9's recipe
+  with player-to-player trading (N_ACTIONS 321) and the pair evaluation. Two changes vs run 9 in the env: trading
+  exists, and the observation encodes the open offer. Watch `eval/pair/*` and `game/offers`/`game/trades`. When
+  `~/Downloads/gnn128-trade-randboard.zip` exists: unzip, delete the zip, `runtime.unassign()` on Colab, `strategy`
+  (cached), `evaluate --pair` and the 1-seat eval at 2000 games, finding + EXPERIMENTS row. If no zip, use W&B.
 - **Player-to-player trading is implemented** (2026-10-03; N_ACTIONS 321, OBS_SIZE 1334): propose → terms (1:1, 2:1,
   1:2) → opponents accept/decline → proposer picks or cancels, max 3 proposals per turn. Built-in bots never offer and
   always decline. Tested (rules, stress, belief, WebSocket flow); the UI trade panels render code-wise but haven't
