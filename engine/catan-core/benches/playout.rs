@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use catan_core::bots::{heuristic_action, random_action};
 use catan_core::rng::Rng;
-use catan_core::{write_obs, Config, State, OBS_SIZE};
+use catan_core::{exact_hands, write_obs, Config, State, OBS_SIZE};
 
 fn play(seed: u64, heuristic: bool, with_obs: bool, obs: &mut [f32]) -> (u64, bool) {
     let cfg = Config { max_turns: 1000, ..Config::default() };
@@ -14,7 +14,7 @@ fn play(seed: u64, heuristic: bool, with_obs: bool, obs: &mut [f32]) -> (u64, bo
     let mut steps = 0u64;
     while !s.is_over() {
         if with_obs {
-            write_obs(&s, obs);
+            write_obs(&s, &exact_hands(&s), obs);
         }
         let a = if heuristic { heuristic_action(&s, &mut rng) } else { random_action(&s, &mut rng) };
         s.step(a);

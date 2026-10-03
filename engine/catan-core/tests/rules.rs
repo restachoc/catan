@@ -4,7 +4,7 @@ use catan_core::bots::{heuristic_action, random_action};
 use catan_core::rng::Rng;
 use catan_core::state::*;
 use catan_core::topology::*;
-use catan_core::{write_obs, OBS_SIZE};
+use catan_core::{exact_hands, write_obs, OBS_SIZE};
 
 fn cfg(n: u8) -> Config {
     Config { n_players: n, max_turns: 1000, ..Config::default() }
@@ -321,7 +321,7 @@ fn stress(games: u64, heuristic_mix: bool, random_board: bool) {
             }
             s.step(a);
             if steps % 7 == 0 {
-                write_obs(&s, &mut obs);
+                write_obs(&s, &exact_hands(&s), &mut obs);
                 assert!(obs.iter().all(|x| x.is_finite() && *x >= 0.0));
             }
             check_invariants(&s, played);
@@ -439,7 +439,7 @@ mod mcts_tests {
     use catan_core::obs::OBS_SIZE;
     use catan_core::rng::Rng;
     use catan_core::state::*;
-    use catan_core::{write_obs, N_ACTIONS};
+    use catan_core::{exact_hands, write_obs, N_ACTIONS};
 
     /// Uniform priors and a flat value: a search driven only by its own terminal backups.
     fn run(root: State, sims: u32) -> Search {
@@ -447,7 +447,7 @@ mod mcts_tests {
         let priors = vec![1.0f32; N_ACTIONS];
         let mut obs = vec![0f32; OBS_SIZE];
         while let Some(leaf) = s.select() {
-            write_obs(leaf, &mut obs); // the real driver encodes every leaf; make sure that works too
+            write_obs(leaf, &exact_hands(leaf), &mut obs); // the real driver encodes every leaf; make sure that works too
             let v = [0.25; MAX_P];
             s.expand(&priors, &v);
         }

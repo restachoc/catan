@@ -1,5 +1,7 @@
 //! Flat, actor-relative observation vector. Seat 0 in every per-player block is the acting player;
-//! opponents follow in turn order. Only public information about opponents is encoded.
+//! opponents follow in turn order. Only public information about opponents is encoded, plus what the
+//! actor can deduce about their hands by card counting (`belief.rs`; callers without a tracker pass the
+//! exact hands, which is what search assumes anyway).
 
 use crate::board::*;
 use crate::state::*;
@@ -8,14 +10,20 @@ use crate::topology::*;
 const HEX_F: usize = 8; // resource one-hot (6), pips/5, robber
 const VERT_F: usize = 2 * MAX_P + 6; // settlement/city per seat, port one-hot (5 resources + 3:1)
 const EDGE_F: usize = MAX_P;
-const PLAYER_F: usize = 11;
+const PLAYER_F: usize = 16; // 11 public stats + expected resource counts (5)
 const SELF_F: usize = 21;
 const GLOBAL_F: usize = N_PHASES + 4 + 11 + 5 + 2;
 
 pub const OBS_SIZE: usize =
     N_HEX * HEX_F + N_VERT * VERT_F + N_EDGE * EDGE_F + MAX_P * PLAYER_F + SELF_F + GLOBAL_F;
 
-pub fn write_obs(s: &State, out: &mut [f32]) {
+/// Every hand as exact counts, for callers without a card-counting tracker.
+pub fn exact_hands(s: &State) -> [[f32; 5]; MAX_P] {
+    s.hands.map(|h| h.map(|c| c as f32))
+}
+
+/// `hands`: the actor's expected resource counts of every seat (absolute seat order).
+pub fn write_obs(s: &State, hands: &[[f32; 5]; MAX_P], out: &mut [f32]) {
     debug_assert_eq!(out.len(), OBS_SIZE);
     out.fill(0.0);
     let n = s.n();
@@ -74,6 +82,9 @@ pub fn write_obs(s: &State, out: &mut [f32]) {
             f[8] = s.settlements_left(q) as f32 / 5.0;
             f[9] = s.cities_left(q) as f32 / 4.0;
             f[10] = s.roads_left(q) as f32 / 15.0;
+            for r in 0..5 {
+                f[11 + r] = hands[q][r] / 5.0;
+            }
         }
         o += PLAYER_F;
     }

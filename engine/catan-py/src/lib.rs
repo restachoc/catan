@@ -11,7 +11,8 @@ use catan_core::mcts::{determinize, MctsConfig, Search};
 use catan_core::rng::Rng;
 use catan_core::stats::{player_stats, N_STATS, STAT_NAMES};
 use catan_core::view::{board_view, state_view};
-use catan_core::{write_obs, Config, State, N_ACTIONS, OBS_SIZE};
+use catan_core::belief::Beliefs;
+use catan_core::{exact_hands, write_obs, Config, State, N_ACTIONS, OBS_SIZE};
 
 /// Who controls a seat inside a VecEnv.
 const SEAT_EXTERNAL: u8 = 0;
@@ -38,6 +39,8 @@ fn bot_action(kind: u8, s: &State, rng: &mut Rng) -> usize {
 #[derive(Clone)]
 struct Game {
     state: State,
+    /// Card-counting beliefs of every seat, for the observation.
+    beliefs: Box<Beliefs>,
     seed: u64,
     history: Vec<u16>,
     bot_rng: Rng,
@@ -49,7 +52,9 @@ impl Game {
     #[pyo3(signature = (seed=0, n_players=4, vp_target=10, random_board=false, max_turns=500))]
     fn new(seed: u64, n_players: u8, vp_target: u8, random_board: bool, max_turns: u16) -> PyResult<Self> {
         let cfg = make_config(n_players, vp_target, random_board, max_turns)?;
-        Ok(Game { state: State::new(cfg, seed), seed, history: vec![], bot_rng: Rng::new(seed ^ 0x5EED) })
+        let state = State::new(cfg, seed);
+        let beliefs = Box::new(Beliefs::new(&state));
+        Ok(Game { state, beliefs, seed, history: vec![], bot_rng: Rng::new(seed ^ 0x5EED) })
     }
 
     #[getter]
@@ -94,7 +99,9 @@ impl Game {
     }
 
     fn step(&mut self, action: usize) -> PyResult<()> {
+        let prev = self.state.hands;
         self.state.try_step(action).map_err(PyValueError::new_err)?;
+        self.beliefs.update(&prev, action, &self.state);
         self.history.push(action as u16);
         Ok(())
     }
@@ -115,7 +122,7 @@ impl Game {
 
     fn observation<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
         let mut obs = vec![0f32; OBS_SIZE];
-        write_obs(&self.state, &mut obs);
+        write_obs(&self.state, &self.beliefs.seats[self.state.actor()].expected(), &mut obs);
         PyArray1::from_vec(py, obs)
     }
 
@@ -146,6 +153,8 @@ impl Game {
 
 struct Slot {
     state: State,
+    /// Card-counting beliefs of every seat (updated after every action, bots included).
+    beliefs: Beliefs,
     bot_rng: Rng,
     /// Games started in this slot; with the slot index and the env seed it fixes the next game's seed.
     games: u64,
@@ -180,6 +189,7 @@ impl VecEnv {
         slot.games += 1;
         let s = Self::game_seed(seed, i, slot.games);
         slot.state = State::new(cfg, s);
+        slot.beliefs = Beliefs::new(&slot.state);
         slot.bot_rng = Rng::new(s ^ 0xB07);
         slot.steps = 0;
     }
@@ -192,13 +202,19 @@ impl VecEnv {
                 break;
             }
             let a = bot_action(kind, &slot.state, &mut slot.bot_rng);
-            slot.state.step(a);
+            Self::apply(slot, a);
             slot.steps += 1;
         }
     }
 
+    fn apply(slot: &mut Slot, a: usize) {
+        let prev = slot.state.hands;
+        slot.state.step(a);
+        slot.beliefs.update(&prev, a, &slot.state);
+    }
+
     fn write(slot: &Slot, obs: &mut [f32], mask: &mut [bool], actor: &mut i64) {
-        write_obs(&slot.state, obs);
+        write_obs(&slot.state, &slot.beliefs.seats[slot.state.actor()].expected(), obs);
         mask.fill(false);
         for a in mask_iter(&slot.state.legal_mask()) {
             mask[a] = true;
@@ -216,8 +232,10 @@ impl VecEnv {
         let slots = (0..num_envs)
             .map(|i| {
                 let s = Self::game_seed(seed, i, 0);
+                let state = State::new(cfg, s);
                 Slot {
-                    state: State::new(cfg, s),
+                    beliefs: Beliefs::new(&state),
+                    state,
                     bot_rng: Rng::new(s ^ 0xB07),
                     games: 0,
                     seats: [SEAT_EXTERNAL; 4],
@@ -349,7 +367,7 @@ impl VecEnv {
                 .enumerate()
                 .with_min_len(16)
                 .for_each(|(i, ((((((((slot, o), m), a), d), w), l), fv), &act))| {
-                    slot.state.step(act as usize);
+                    Self::apply(slot, act as usize);
                     slot.steps += 1;
                     Self::advance_bots(slot);
                     if slot.state.is_over() {
@@ -536,7 +554,7 @@ impl AzPool {
                 g.has_leaf = false;
                 if let Some(search) = g.search.as_mut() {
                     if let Some(leaf) = search.select() {
-                        write_obs(leaf, &mut g.leaf_obs);
+                        write_obs(leaf, &exact_hands(leaf), &mut g.leaf_obs); // search treats hands as known
                         g.leaf_mask.fill(false);
                         for a in mask_iter(&leaf.legal_mask()) {
                             g.leaf_mask[a] = true;
@@ -624,7 +642,7 @@ impl AzPool {
                     };
                     if record {
                         let mut obs = vec![0f32; OBS_SIZE];
-                        write_obs(&g.state, &mut obs);
+                        write_obs(&g.state, &exact_hands(&g.state), &mut obs);
                         let pi = visits.iter().filter(|v| v.1 > 0).map(|v| (v.0 as u16, v.1 as f32 / total as f32)).collect();
                         g.samples.push(Sample { obs, mask: g.state.legal_mask(), pi, actor: g.state.actor() as u8 });
                     }

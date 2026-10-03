@@ -20,7 +20,7 @@ from torch import nn
 from catan_rl import ACTIONS, N_ACTIONS, OBS_SIZE, Game
 
 N_HEX, N_VERT, N_EDGE, MAX_P = 19, 54, 72, 4
-HEX_F, VERT_F, EDGE_F, PLAYER_F = 8, 14, 4, 11  # per-node blocks of the flat observation (obs.rs)
+HEX_F, VERT_F, EDGE_F, PLAYER_F = 8, 14, 4, 16  # per-node blocks of the flat observation (obs.rs)
 BOARD_OBS = N_HEX * HEX_F + N_VERT * VERT_F + N_EDGE * EDGE_F
 GLOBAL_F = OBS_SIZE - BOARD_OBS  # players, own hand/dev cards, globals
 N_TOK = N_HEX + N_VERT + N_EDGE

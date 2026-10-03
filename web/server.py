@@ -47,7 +47,10 @@ def register_policies() -> None:
     if os.environ.get("CATAN_POLICY"):
         paths["ppo"] = Path(os.environ["CATAN_POLICY"])
     for name, path in paths.items():
-        register_bot(name, PolicyBot(path, greedy=False))
+        try:
+            register_bot(name, PolicyBot(path, greedy=False))
+        except RuntimeError as e:  # trained on an older observation/action layout
+            print(f"skipping {name}: incompatible checkpoint ({str(e).splitlines()[0]})")
 
 
 register_policies()

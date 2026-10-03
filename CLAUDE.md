@@ -82,6 +82,7 @@ engine/                   Cargo workspace (release profile: lto=fat, codegen-uni
     state.rs              State (Copy, no heap) + all rules: legal_mask(), step(), try_step()
     actions.rs            flat action-space constants, Mask bitset helpers, action_name()
     obs.rs                actor-relative flat f32 observation (OBS_SIZE)
+    belief.rs             card counting: per-seat possible worlds of every hand, updated after each action
     bots.rs               random_action, heuristic_action (greedy rules; see the doc comments there)
     mcts.rs               AlphaZero MCTS (PUCT), sampled chance nodes, determinization of hidden dev cards
     stats.rs              end-of-game per-player stats (STAT_NAMES) for strategy analysis
@@ -121,7 +122,7 @@ Always use the venv (`.venv/bin/...`). Rust is installed via rustup; run `source
 
 ```bash
 .venv/bin/maturin develop --release                       # REQUIRED after any Rust change (see gotchas)
-cd engine && cargo test -p catan-core --release           # 19 tests, ~1 s
+cd engine && cargo test -p catan-core --release           # 22 tests, ~1 s
 cd engine && cargo test -p catan-core --release -- --ignored   # 100k-game invariant stress test, ~20 s
 cd engine && cargo bench -p catan-core                    # engine throughput
 .venv/bin/python -m catan_rl.smoke                        # bindings end to end
@@ -242,9 +243,16 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
   YOP 190+pair (15 unordered pairs), MOVE_ROBBER 205+h, STEAL 224+k (k = seats after the current
   player), DISCARD 228+r, TRADE 233 + give*4 + (get index skipping give).
 - Resources are indexed 0 wood, 1 brick, 2 wool, 3 grain, 4 ore, 5 desert. Port type 5 = 3:1.
-- The observation (`OBS_SIZE = 1292`) is **actor-relative**: seat 0 is always the acting player. Blocks: 19 hexes
-  × 8, 54 vertices × 14, 72 edges × 4, 4 players × 11, own hand/dev cards/ratios 21, globals 31. Opponents are
-  encoded with public info only (card counts, dev-card counts, not contents).
+- The observation (`OBS_SIZE = 1312`) is **actor-relative**: seat 0 is always the acting player. Blocks: 19 hexes
+  × 8, 54 vertices × 14, 72 edges × 4, 4 players × 16, own hand/dev cards/ratios 21, globals 31. Opponents are
+  encoded with public info (card counts, dev-card counts, not contents) plus the actor's **expected resource
+  counts** of every hand from card counting (`belief.rs`).
+- Card counting: every resource movement is public except robber steals. Each seat keeps up to 128 possible
+  worlds (everyone's exact hand) with probabilities; an unseen steal splits worlds by the card the victim may
+  have lost, other changes filter out impossible worlds (negative counts, Monopoly amounts). `VecEnv` and `Game`
+  track it; search (`AzPool`, MCTS leaves) passes exact hands via `exact_hands`, as it treats hands as known.
+  Uncertainty is common (a third of observer-moments in bot games); costs ~30% raw engine speed, ~7% training
+  speed on this CPU.
 - Python derives offsets from action names (`catan_rl.ACTIONS`) and the web UI fetches them from `/api/meta`.
   **But `ui.js` duplicates the YOP pair order and the `tradeId` formula**, so update both if the layout changes.
 
@@ -265,8 +273,9 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
   --minibatch 8192`. Numbers: [board-network-speed](findings/board-network-speed.md),
   [gpu-batch-size-and-precision](findings/gpu-batch-size-and-precision.md).
 - Policy logits are masked in fp32 (`NEG_INF = -1e9` overflows fp16).
-- **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint**, and `web/server.py` loads all
-  `runs/*/best.pt` at startup. Start a new run name, and delete or move incompatible runs.
+- **Changing `OBS_SIZE` or `N_ACTIONS` invalidates every checkpoint.** `web/server.py` skips incompatible
+  `runs/*/best.pt` with a message. Runs 1–8 and az1 predate card counting (OBS_SIZE 1292): they can't be evaluated
+  or played with the current engine; their cached results (`generalization.json`, `strategy.csv`) stay valid.
 
 ## PPO training (ppo.py)
 
