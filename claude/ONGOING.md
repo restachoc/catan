@@ -9,8 +9,9 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   1:2) → opponents accept/decline → proposer picks or cancels, max 3 proposals per turn. Built-in bots never offer and
   always decline. Tested (rules, stress, belief, WebSocket flow); the UI trade panels render code-wise but haven't
   been seen on screen yet (they only appear mid-game on the human's move). No training run yet. Open question for
-  the first run: the heuristic eval can't show trading's value (bots decline); compare run 9's curves for harm,
-  and track `game/offers`/`game/trades`; a fair test needs evaluation against snapshots or the owner.
+  the first run: the 1-seat heuristic eval can't show trading's value (bots decline); the new pair evaluation
+  (`eval/pair/`: two policy seats vs two heuristic bots, chance 50%, plus trades between them) can. Compare run 9's
+  1-seat curves for harm.
 - **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
   run 9 at 55 min/5.1M steps). Runs 8 and 9 exist only as W&B curves. Before the next GPU run, consider saving the
   run directory to Google Drive during training, or shorter jobs.

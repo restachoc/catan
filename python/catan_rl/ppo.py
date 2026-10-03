@@ -80,6 +80,7 @@ class Config:
     eval_every: int = 20
     eval_games: int = 400
     eval_both_boards: bool = True  # also evaluate on the other board type (generalisation curve)
+    eval_pair: bool = True  # also evaluate two policy seats vs two heuristic bots (they can trade; chance 50%)
     threads: int = 0
     resume: str = ""
     # hardware: "cpu" or "cuda"; amp = fp16 autocast (cuda only, ~1.5x for the GNN on a T4)
@@ -502,6 +503,12 @@ class Trainer:
                                    random_board=not cfg.random_board, seed=10_000)
                     row[f"eval/{other}_board/win_rate"] = round(ev2["win_rate"], 3)
                     row[f"eval/{other}_board/vp"] = round(ev2["avg_vp"], 2)
+                if cfg.eval_pair and cfg.n_players == 4:
+                    ev3 = evaluate(self.net, "heuristic", games=cfg.eval_games, n_players=4,
+                                   random_board=cfg.random_board, seed=10_000, pair=True)
+                    row["eval/pair/win_rate"] = round(ev3["win_rate"], 3)
+                    row["eval/pair/vp"] = round(ev3["avg_vp"], 2)
+                    row["eval/pair/trades"] = round(ev3["trades"], 2)
                 row["perf/eval_s"] = round(time.perf_counter() - te, 1)
                 self.checkpoint(self.dir / "latest.pt")
                 if ev["win_rate"] > self.best_wr:
@@ -517,6 +524,7 @@ class Trainer:
                 f"len {row['game_len']:5} | train wr {row['train_wr']:.2f} | ent {info['ent']:.2f} "
                 f"kl {info['kl']:.4f} ev {info['explained_var']:.2f}"
                 + (f" | EVAL vs heuristic wr {row['eval_wr_heuristic']:.3f} vp {row['eval_vp']}" if row["eval_vp"] != "" else "")
+                + (f" | pair wr {row['eval/pair/win_rate']:.3f} trades {row['eval/pair/trades']}" if "eval/pair/win_rate" in row else "")
                 + f" | eta {eta / 3600:.1f}h",
                 flush=True,
             )

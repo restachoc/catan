@@ -135,7 +135,7 @@ cd engine && cargo bench -p catan-core                    # engine throughput
 nice -n 10 .venv/bin/python -m catan_rl.ppo --name <run> [flags] > runs/<run>/train.log 2>&1   # flags mirror ppo.Config
 nice -n 10 .venv/bin/python -m catan_rl.az --name <run> [flags]    # flags mirror az.Config fields
 
-.venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--random-board] [--replays N]
+.venv/bin/python -m catan_rl.evaluate runs/<run>/best.pt --games 2000 [--random-board] [--pair] [--replays N]
 .venv/bin/python -m catan_rl.strategy <run> [--games 300]   # cached in runs/<run>/strategy.csv
 .venv/bin/python -m catan_rl.generalization <run> ... [--labels ...]   # cached in runs/<run>/generalization.json
 .venv/bin/python -m catan_rl.eval_curve <run> ...   # old runs only; plot_runs then uses the fixed-game curve
@@ -182,7 +182,9 @@ Speeds: [board-network-speed](findings/board-network-speed.md) (GNN d64 6M steps
 ## Weights & Biases (`--wandb`)
 
 Off by default. With `--wandb`, `ppo.py` logs every metric to W&B (project `--wandb-project`, default `catan`),
-x-axis = training samples. Groups: `eval/` (fixed games, plus the other board type: `eval/<board>_board/`),
+x-axis = training samples. Groups: `eval/` (fixed games, plus the other board type: `eval/<board>_board/`, plus
+`eval/pair/`: two policy seats vs two heuristic bots, so it can trade with itself; win rate = either seat wins,
+chance 50%, and trades between the pair per game),
 `game/` and `strategy/` (learner players in training games), `ppo/`, `nn/`, `perf/`, `league/`. Every metric also
 goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed columns (plot_runs reads those).
 
@@ -237,7 +239,9 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
   answers in turn order (accept only if it can pay); with any accepter, the proposer picks one or cancels. Offering
   is one main-phase action so that the 60 sets of terms don't crowd out everything else for an untrained policy.
 - The built-in bots (heuristic and random) never offer and always decline, so against them trading can't help:
-  evaluation vs the heuristic doesn't measure it. `game/offers` and `game/trades` track it in training games.
+  evaluation vs the heuristic doesn't measure it. The pair evaluation (`evaluate --pair`, `eval/pair/` in training;
+  `--no-eval-pair` turns it off) does: two policy seats on opposite sides vs two heuristic bots, chance 50%.
+  `game/offers` and `game/trades` track trading in training games. `best.pt` is still chosen on the 1-seat eval.
   `random_any_action` (trading included) drives the rule tests.
 - The heuristic bot (`bots.rs`) is greedy and rule-based: city > settlement > useful dev card > road toward a
   new spot > one-card bank trade > buy dev card > end turn. It never blocks leaders or plans ahead, but it
