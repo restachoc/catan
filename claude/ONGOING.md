@@ -5,20 +5,11 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 9 (`gnn128-cards-randboard`): ready to launch, waiting for Colab's GPU limit to reset** (still limited on
-  2026-10-03). Code is pushed (`9b6bd63`). ~70 min + GPU strategy analysis, with `--wandb`: run 8's
-  recipe (d128, 4 rounds, constant LR and VP reward, now the defaults) **with card counting in the observation**
-  (OBS_SIZE 1292 → 1312). Only change vs run 8. Run 8 has no checkpoints, so compare the in-training curves (same
-  400 fixed games). Launch cell (check `nvidia-smi` shows a T4 first):
-  `--name gnn128-cards-randboard --wandb --random-board --arch gnn --hidden 128 --layers 4 --num-envs 256 --rollout 128
-  --total-steps 6e6 --snapshot-every 10 --eval-every 10 --eval-games 400 --device cuda --amp`, then
-  `strategy gnn128-cards-randboard --device cuda`, zip, download (as for run 8). When the zip exists: unzip in the repo root, delete the zip,
-  `runtime.unassign()` on Colab, `strategy` (cached, redraws), `generalization gnn128-cards-randboard` (only runs
-  with OBS_SIZE 1312 can be evaluated now), finding + EXPERIMENTS row. If no zip: check W&B, tell the owner.
-- **Colab hit its free GPU usage limit** on 2026-10-02 (~13:00), which cut run 8's runtime before its zip downloaded.
-  No GPU runs until it resets; don't buy units. Run 8's curves are on W&B
-  ([finding](../findings/vp-shaping-fade-vs-constant.md)).
-- **The GNN plateaus at ~6 VP / ~12–15% from ~3.5M steps** in runs 6–8. Ruled out: LR decay, more rounds, the VP fade.
+- **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
+  run 9 at 55 min/5.1M steps). Runs 8 and 9 exist only as W&B curves. Before the next GPU run, consider saving the
+  run directory to Google Drive during training, or shorter jobs.
+- **The GNN plateaus at ~6 VP / ~12–15% from ~3.5M steps** in runs 6–8. Ruled out: LR decay, more rounds, the VP fade, missing
+  card counting (run 9).
   Candidates left: the global-token bottleneck (hybrid with seat tokens), the opponent mix (25% heuristic), more steps.
 - **Board network: the GNN is chosen.** Run 5 (d64 L4) reaches 8.7% on random boards vs the MLP's 0.5%, still
   rising ([finding](../findings/gnn-generalises-across-boards.md)); d128 (run 6) reaches 13.4%
