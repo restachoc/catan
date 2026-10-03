@@ -5,18 +5,12 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 10 (`gnn128-trade-randboard`) is training on Colab** with `--wandb` (launched 2026-10-03 ~21:15): run 9's recipe
-  with player-to-player trading (N_ACTIONS 321) and the pair evaluation. Two changes vs run 9 in the env: trading
-  exists, and the observation encodes the open offer. Watch `eval/pair/*` and `game/offers`/`game/trades`. When
-  `~/Downloads/gnn128-trade-randboard.zip` exists: unzip, delete the zip, `runtime.unassign()` on Colab, `strategy`
-  (cached), `evaluate --pair` and the 1-seat eval at 2000 games, finding + EXPERIMENTS row. If no zip, use W&B.
-- **Player-to-player trading is implemented** (2026-10-03; N_ACTIONS 321, OBS_SIZE 1334): propose → terms (1:1, 2:1,
-  1:2) → opponents accept/decline → proposer picks or cancels, max 3 proposals per turn. Built-in bots never offer and
-  always decline. Tested (rules, stress, belief, WebSocket flow); the UI trade panels render code-wise but haven't
-  been seen on screen yet (they only appear mid-game on the human's move). No training run yet. Open question for
-  the first run: the 1-seat heuristic eval can't show trading's value (bots decline); the new pair evaluation
-  (`eval/pair/`: two policy seats vs two heuristic bots, chance 50%, plus trades between them) can. Compare run 9's
-  1-seat curves for harm.
+- **Run 10 (trading) finished training** but its zip hadn't arrived by 22:25 (the strategy step runs after training).
+  If `~/Downloads/gnn128-trade-randboard.zip` appears: unzip, delete the zip, run `runtime.unassign()` on Colab
+  (otherwise check the Colab tab and release the runtime). Results are written up from W&B
+  ([finding](../findings/trading-first-run.md)).
+- **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
+  1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
   run 9 at 55 min/5.1M steps). Runs 8 and 9 exist only as W&B curves. Before the next GPU run, consider saving the
   run directory to Google Drive during training, or shorter jobs.
