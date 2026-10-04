@@ -5,6 +5,14 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
+- **Transformer run, waiting for a Colab GPU** (locked on 2026-10-04). `--arch transformer` is implemented and
+  pushed (`896dff2`): GraphPolicyNet's encoders/heads with full attention over all 146 tokens, per-head graph-distance
+  bias. The owner wants it **about as expensive as the GNN d128 L4** (run 6/9). Step 1 on a T4:
+  `bash catan/scripts/colab.sh benchmarks/policy_cost.py --configs gnn:128:4 transformer:64:4 transformer:64:3
+  transformer:96:3 transformer:128:2 transformer:64:6`, pick the transformer whose est. samples/s is closest to the
+  GNN's (the old benchmark suggests d64 with ~3 layers). Step 2: run 9's recipe with `--arch transformer --hidden <d>
+  --layers <L>` (trading off, the default), `--wandb`, plus the GPU strategy step and zip as before. Compare with
+  run 9's curves (only the network changes).
 - **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
   1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
