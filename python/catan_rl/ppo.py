@@ -47,7 +47,8 @@ class Config:
     seed: int = 0
     n_players: int = 4
     random_board: bool = False
-    # model: "mlp" (hidden = width) or "gnn" (hidden = node embedding size, layers = message-passing rounds)
+    # model: "mlp" (hidden = width), "gnn" (hidden = node embedding size, layers = message-passing rounds) or
+    # "transformer" (hidden = token size, layers = attention blocks over all board tokens)
     arch: str = "mlp"
     hidden: int = 512
     layers: int = 3

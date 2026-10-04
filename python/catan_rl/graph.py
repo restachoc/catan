@@ -183,3 +183,21 @@ class GNNLayer(nn.Module):
         out = {t: x[t] + F.relu(self.ln[t](pre[t] + gt[:, i])) for i, t in enumerate(self.T)}
         g = g + self.upd_g(torch.cat([g, out["h"].mean(0), out["v"].mean(0), out["e"].mean(0)], -1))
         return out, g
+
+
+class AttnBlock(nn.Module):
+    """Pre-LN transformer block on batch-major tokens (B, T, d): self-attention with an additive bias, then an FFN."""
+
+    def __init__(self, d: int, heads: int, ffn: int = 2):
+        super().__init__()
+        self.h = heads
+        self.ln1, self.ln2 = nn.LayerNorm(d), nn.LayerNorm(d)
+        self.qkv, self.o = nn.Linear(d, 3 * d), nn.Linear(d, d)
+        self.ffn = nn.Sequential(nn.Linear(d, ffn * d), nn.ReLU(), nn.Linear(ffn * d, d))
+
+    def forward(self, x: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
+        B, T, d = x.shape
+        q, k, v = self.qkv(self.ln1(x)).view(B, T, 3, self.h, -1).permute(2, 0, 3, 1, 4)
+        a = F.scaled_dot_product_attention(q, k, v, attn_mask=bias.to(q.dtype))
+        x = x + self.o(a.transpose(1, 2).reshape(B, T, d))
+        return x + self.ffn(self.ln2(x))

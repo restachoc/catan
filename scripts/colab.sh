@@ -2,14 +2,17 @@
 # Run one catan_rl job on a Colab runtime and zip its run directory.
 #
 #   bash catan/scripts/colab.sh <module> --name <run> [flags]     e.g. colab.sh ppo --name gnn1 --arch gnn ...
+#   bash catan/scripts/colab.sh <script.py> [args]                e.g. colab.sh benchmarks/policy_cost.py (no zip)
 #
 # Pulls the latest master, builds and installs the engine (Rust is installed on first use; Colab's own
 # CUDA torch is kept), runs `python -m catan_rl.<module>` from the repo root, then writes
 # /content/<run>.zip containing runs/<run>/. The notebook then downloads it with google.colab.files.
 set -euo pipefail
 module=$1; shift
-name=$(printf '%s\n' "$@" | grep -A1 -x -- --name | tail -1)
-[ -n "$name" ] || { echo "colab.sh: --name is required" >&2; exit 2; }
+if [[ $module != *.py ]]; then
+    name=$(printf '%s\n' "$@" | grep -A1 -x -- --name | tail -1)
+    [ -n "$name" ] || { echo "colab.sh: --name is required" >&2; exit 2; }
+fi
 
 cd "$(dirname "$0")/.."
 git pull -q --ff-only
@@ -22,6 +25,10 @@ maturin build --release -q -o /content/wheels 2>&1 | tail -1
 pip -q install --no-deps --force-reinstall /content/wheels/*.whl
 python -c "import torch; print('torch', torch.__version__, 'gpu:', torch.cuda.get_device_name() if torch.cuda.is_available() else None)"
 
+if [[ $module == *.py ]]; then
+    python "$module" "$@"
+    exit
+fi
 python -m "catan_rl.$module" "$@"
 
 rm -f "/content/$name.zip"

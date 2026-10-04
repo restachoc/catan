@@ -96,6 +96,12 @@ class GraphPolicyNet(nn.Module):
         nn.init.orthogonal_(self.v[-1].weight, gain=1.0)
 
     def forward(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        x, g = self.encode(obs, mask)
+        x, g = self.trunk(x, g)
+        return self.decode(x, g, mask)
+
+    def encode(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+        """Node embeddings, node-major {"h": (19, B, d), "v": (54, B, d), "e": (72, B, d)}, and the global token (B, d)."""
         B = obs.shape[0]
         h, v, e, g = G.split_obs(obs)
         m = mask.to(obs.dtype)
@@ -107,14 +113,54 @@ class GraphPolicyNet(nn.Module):
         g = self.enc_g(torch.cat([g, m[:, self.glob_act]], -1))
         x = {k: enc(t).transpose(0, 1).contiguous()
              for k, enc, t in (("h", self.enc_h, h), ("v", self.enc_v, v), ("e", self.enc_e, e))}
+        return x, g
+
+    def trunk(self, x: dict[str, torch.Tensor], g: torch.Tensor) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
         for layer in self.layers:
             x, g = layer(x, g, self.adj)
+        return x, g
+
+    def decode(self, x: dict[str, torch.Tensor], g: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         pv = self.pi_v(x["v"])
         flat = torch.cat([pv[..., 0], pv[..., 1], self.pi_e(x["e"])[..., 0], self.pi_h(x["h"])[..., 0]], 0).T
         logits = torch.cat([flat, self.pi_g(g)], -1)[:, self.perm]
         return logits.float().masked_fill(~mask, NEG_INF), self.v(g).float().squeeze(-1)
 
     act = PolicyNet.act
+
+
+class TransformerPolicyNet(GraphPolicyNet):
+    """GraphPolicyNet's encoders and heads with full self-attention over all 146 tokens (hexes, vertices, edges,
+    global) instead of message passing. Attention gets a learned per-head bias by graph distance between tokens
+    (the global token is its own distance bucket) and a per-type embedding; there are no positional embeddings, so
+    weights stay shared across locations as in the GNN.
+    """
+
+    MAX_D = 8  # distances beyond this share one bias
+
+    def __init__(self, hidden: int = 64, layers: int = 4, heads: int = 4):
+        super().__init__(hidden, 0)
+        self.cfg = {"kind": "transformer", "hidden": hidden, "layers": layers, "heads": heads}
+        d = hidden
+        dist = torch.full((G.N_TOK + 1, G.N_TOK + 1), self.MAX_D + 1, dtype=torch.long)
+        dist[:G.N_TOK, :G.N_TOK] = G.topology().dist.clamp(max=self.MAX_D)
+        self.register_buffer("dist", dist, persistent=False)
+        self.type_emb = nn.Parameter(torch.zeros(4, d))
+        self.attn_bias = nn.Parameter(torch.zeros(layers, heads, self.MAX_D + 2))
+        self.blocks = nn.ModuleList(G.AttnBlock(d, heads) for _ in range(layers))
+        for m in self.blocks.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
+                nn.init.zeros_(m.bias)
+
+    def trunk(self, x: dict[str, torch.Tensor], g: torch.Tensor) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+        te = self.type_emb
+        t = torch.cat([x["h"] + te[0], x["v"] + te[1], x["e"] + te[2], (g + te[3])[None]], 0).transpose(0, 1)
+        for blk, b in zip(self.blocks, self.attn_bias):
+            t = blk(t, b[:, self.dist][None])
+        t = t.transpose(0, 1)
+        a, c = G.N_HEX, G.N_HEX + G.N_VERT
+        return {"h": t[:a], "v": t[a:c], "e": t[c:G.N_TOK]}, t[G.N_TOK]
 
 
 class GraphedPolicy:
@@ -213,7 +259,7 @@ def save(net: nn.Module, path: Path, **meta) -> None:
     tmp.replace(path)
 
 
-NETS = {"mlp": PolicyNet, "gnn": GraphPolicyNet, "az": AZNet}
+NETS = {"mlp": PolicyNet, "gnn": GraphPolicyNet, "transformer": TransformerPolicyNet, "az": AZNet}
 
 
 def make_policy(arch: str, hidden: int, layers: int) -> PolicyNet | GraphPolicyNet:
