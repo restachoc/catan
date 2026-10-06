@@ -24,6 +24,7 @@ kept no snapshots), `plots/generalization.png` (fixed vs random boards),
 | `gnn128-vpkeep-randboard` | Run 8 (VP reward kept) | Run 6 with `--vp-anneal-frac 0` and warmup + constant LR; `--wandb`. Checkpoints lost (Colab usage limit) | – | in-training, 400 games: 11.7% / 6.1 |
 | `gnn128-cards-randboard` | Run 9 (card counting) | Run 8 + card counting in the observation (OBS_SIZE 1312); `--wandb`. Colab session died at 5.1M steps, no checkpoints | – | in-training, mean 4–5.1M: 10.4% / 6.0 |
 | `gnn128-trade-randboard` | Run 10 (trading) | Run 9 + player-to-player trading (N_ACTIONS 321) and the pair evaluation; `--wandb` | – | best.pt, 2000 games: 4.2% / 5.0 (pair: 16.6% / 5.7, chance 50%) |
+| `tf96-l3-randboard` | Run 11 (transformer) | Run 9 with `--arch transformer --hidden 96 --layers 3` (0.28M params), cost-matched to the GNN; `--wandb` | 2.3% / 5.0 | 1.9% / 4.9 |
 | `az1` | AlphaZero az1 | AlphaZero, 64 sims, 256 games, 3M samples (~1.6 h), pure self-play, win/loss | 0.0% / 3.1 (raw policy) | 0.1% / 2.8 |
 
 az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, no upward trend.
@@ -38,6 +39,7 @@ az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, 
 - [vp-shaping-fade-vs-constant](../findings/vp-shaping-fade-vs-constant.md): run 8 vs run 6.
 - [card-counting](../findings/card-counting.md): run 9 vs run 8.
 - [trading-first-run](../findings/trading-first-run.md): run 10 vs run 9.
+- [transformer-vs-gnn](../findings/transformer-vs-gnn.md): run 11 vs run 9.
 - [bot-strategies](../findings/bot-strategies.md): strategy mix of runs 1–3 and 5–7.
 - [alphazero-value-memorisation](../findings/alphazero-value-memorisation.md): az1.
 - [evaluation-noise](../findings/evaluation-noise.md): why the in-training curves are bumpy; fixed-game curves.

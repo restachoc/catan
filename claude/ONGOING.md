@@ -5,11 +5,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 11 (`tf96-l3-randboard`) is training on Colab** with `--wandb` (launched 2026-10-06): run 9's recipe with
-  `--arch transformer --hidden 96 --layers 3` (0.28M params). Cost-matched on the T4 (`benchmarks/policy_cost.py`):
-  GNN d128 L4 1,788 samples/s; tf d96 L3 1,630 and tf d64 L4 1,626 (0.91×); tf d64 L3 2,091; tf d128 L2 2,010; tf d64
-  L6 1,079. Only the network changes vs run 9. When `~/Downloads/tf96-l3-randboard.zip` exists: unzip, delete the zip,
-  `runtime.unassign()` on Colab, `strategy` (cached), `generalization` with run 10's era runs, `plot_runs`, finding.
+- **Transformer (run 11) learned much slower than the GNN** ([finding](../findings/transformer-vs-gnn.md)). Proposed
+  next: same size, distance bias initialised as a locality prior (−1 per graph-distance step); else the hybrid.
 - **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
   1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
