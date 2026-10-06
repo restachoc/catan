@@ -131,9 +131,12 @@ class GraphPolicyNet(nn.Module):
 
 class TransformerPolicyNet(GraphPolicyNet):
     """GraphPolicyNet's encoders and heads with full self-attention over all 146 tokens (hexes, vertices, edges,
-    global) instead of message passing. Attention gets a learned per-head bias by graph distance between tokens
-    (the global token is its own distance bucket) and a per-type embedding; there are no positional embeddings, so
-    weights stay shared across locations as in the GNN.
+    global) instead of message passing.
+
+    Position: a learned embedding per token slot (the board topology is fixed; only what lies on it changes), plus a
+    learned attention bias per layer, head and graph distance between tokens. The bias starts as a multi-scale
+    locality prior (-slope * distance, slopes 2, 1, 0.5, ... per head; the global token at no penalty), so attention
+    starts out local like the GNN and learns how far to look. A final LayerNorm feeds the heads.
     """
 
     MAX_D = 8  # distances beyond this share one bias
@@ -145,20 +148,24 @@ class TransformerPolicyNet(GraphPolicyNet):
         dist = torch.full((G.N_TOK + 1, G.N_TOK + 1), self.MAX_D + 1, dtype=torch.long)
         dist[:G.N_TOK, :G.N_TOK] = G.topology().dist.clamp(max=self.MAX_D)
         self.register_buffer("dist", dist, persistent=False)
-        self.type_emb = nn.Parameter(torch.zeros(4, d))
-        self.attn_bias = nn.Parameter(torch.zeros(layers, heads, self.MAX_D + 2))
+        self.pos_emb = nn.Parameter(0.1 * torch.randn(G.N_TOK + 1, d))
+        slopes = 2.0 ** -torch.arange(heads, dtype=torch.float32) * 2  # 2, 1, 0.5, ...
+        prior = -slopes[:, None] * torch.arange(self.MAX_D + 2, dtype=torch.float32)
+        prior[:, -1] = 0.0  # the global token's bucket
+        self.attn_bias = nn.Parameter(prior.repeat(layers, 1, 1))
         self.blocks = nn.ModuleList(G.AttnBlock(d, heads) for _ in range(layers))
+        self.ln_out = nn.LayerNorm(d)
         for m in self.blocks.modules():
             if isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
                 nn.init.zeros_(m.bias)
 
     def trunk(self, x: dict[str, torch.Tensor], g: torch.Tensor) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
-        te = self.type_emb
-        t = torch.cat([x["h"] + te[0], x["v"] + te[1], x["e"] + te[2], (g + te[3])[None]], 0).transpose(0, 1)
+        t = torch.cat([x["h"], x["v"], x["e"], g[None]], 0) + self.pos_emb[:, None]
+        t = t.transpose(0, 1)
         for blk, b in zip(self.blocks, self.attn_bias):
             t = blk(t, b[:, self.dist][None])
-        t = t.transpose(0, 1)
+        t = self.ln_out(t).transpose(0, 1)
         a, c = G.N_HEX, G.N_HEX + G.N_VERT
         return {"h": t[:a], "v": t[a:c], "e": t[c:G.N_TOK]}, t[G.N_TOK]
 
