@@ -1,4 +1,4 @@
-# A cost-matched transformer learns much slower than the GNN
+# A cost-matched transformer learns slower than the GNN; position embeddings close most of the gap
 
 *2026-10-06. Run 11 (`tf96-l3-randboard`) vs run 9 (`gnn128-cards-randboard`). Curves: W&B; strategy:
 `plots/tf96-l3-randboard_strategy.png`.*
@@ -28,6 +28,18 @@ and d64 L4 1,626 (0.91×); d64 L3 2,091; d128 L2 2,010; d64 L6 1,079. The real r
 **Likely cause.** The GNN has board locality built in (each node only hears its neighbours); the transformer must
 learn it. With the distance bias at 0, every token starts out attending equally to all 146, averaging the board away.
 
-**Next.** Initialise the distance bias as a locality prior (e.g. −1 per step of graph distance) so it starts
-GNN-like and can learn to look further; same size and cost. Failing that, the hybrid (GNN layers plus a few
-attention tokens).
+**Run 12 (`tf96-l3-pos-randboard`, same size): fixed.** Changes vs run 11: a learned position embedding per token
+slot instead of the type embeddings (the topology is fixed; only what lies on it changes), the distance bias
+initialised as a multi-scale locality prior (−slope × distance, slopes 2, 1, 0.5, 0.25 per head; the global token
+unpenalised), and a final LayerNorm. Its Colab session died at 4.6M steps (55 min), so no checkpoints.
+
+| Steps | Run 9 GNN | Run 11 transformer | Run 12 transformer + positions |
+|---|---|---|---|
+| 2M | 5.0% / 5.27 | 0.0% / 3.45 | 4.7% / 4.78 |
+| 4M | 9.0% / 5.91 | 1.0% / 3.74 | 8.0% / 5.42 |
+| mean 4–5.1M | 10.4% / 5.97 | 0.6% / 3.87 | 7.0% / 5.41 |
+
+- Most of run 11's gap closed (+1.5 VP at 4–5M), but still ~0.5 VP below the GNN at equal cost, and still rising
+  when it died. Three changes at once vs run 11, so which one mattered is unknown.
+- The GNN remains the better network per GPU-minute at 6M steps; a longer run would show whether the transformer
+  overtakes it.

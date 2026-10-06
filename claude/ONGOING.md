@@ -5,18 +5,13 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 12 (`tf96-l3-pos-randboard`) is training on Colab** with `--wandb` (launched 2026-10-06): run 11's transformer
-  (d96 L3) redone with per-slot position embeddings, a multi-scale locality prior for the distance bias (slopes 2,
-  1, 0.5, 0.25; global token unpenalised) and a final LayerNorm (`d1fc0e9`). Three changes vs run 11, one network
-  change vs run 9. The cell first re-runs `policy_cost.py` (gnn:128:4 vs transformer:96:3); its output is in the
-  Colab cell. When `~/Downloads/tf96-l3-pos-randboard.zip` exists: unzip, delete the zip, `runtime.unassign()`,
-  `strategy` (cached), 2000-game `evaluate` on both boards, finding. Run 11 ([finding](../findings/transformer-vs-gnn.md))
-  checkpoints no longer load (parameters changed).
+- **Transformer with position embeddings (run 12) trails the GNN by ~0.5 VP** at 4–5M steps, still rising; its
+  Colab session died at 4.6M ([finding](../findings/transformer-vs-gnn.md)).
 - **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
   1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
-- **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
-  run 9 at 55 min/5.1M steps). Runs 8 and 9 exist only as W&B curves. Before the next GPU run, consider saving the
-  run directory to Google Drive during training, or shorter jobs.
+- **Colab sessions die at ~55 min** (runs 9 and 12; run 7's first try at 41 min), before the zip downloads. Runs 8, 9
+  and 12 exist only as W&B curves. Fix before the next GPU run: save the run folder to Google Drive during training
+  (owner approves Drive access once), or split runs into <50-min chunks resumed from `latest.pt`.
 - **The GNN plateaus at ~6 VP / ~12–15% from ~3.5M steps** in runs 6–8. Ruled out: LR decay, more rounds, the VP fade, missing
   card counting (run 9).
   Candidates left: the global-token bottleneck (hybrid with seat tokens), the opponent mix (25% heuristic), more steps.

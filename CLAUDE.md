@@ -25,7 +25,7 @@ conclusions go there, not here; this file keeps how things work and how to work.
 | [vp-shaping-fade-vs-constant](findings/vp-shaping-fade-vs-constant.md) | Keeping the VP reward on all run doesn't lift the ~6 VP plateau. |
 | [card-counting](findings/card-counting.md) | Expected opponent hands in the observation: no visible effect by 5M steps. |
 | [trading-first-run](findings/trading-first-run.md) | With trading, the bot offers nearly every turn and learns much slower; trading parked. |
-| [transformer-vs-gnn](findings/transformer-vs-gnn.md) | A cost-matched transformer (d96 L3) learns much slower than the GNN (4.7 vs ~6 VP at 6M). |
+| [transformer-vs-gnn](findings/transformer-vs-gnn.md) | Cost-matched transformer: slow without position info (run 11); with position embeddings ~0.5 VP below the GNN (run 12). |
 | [reward-shaping-and-opponents](findings/reward-shaping-and-opponents.md) | Mixed opponents + VP shaping learn far faster than pure self-play with win/loss (confounded). |
 | [bot-strategies](findings/bot-strategies.md) | Bots favour dev cards and barely build extra settlements. |
 | [alphazero-value-memorisation](findings/alphazero-value-memorisation.md) | az1 failed: the value net memorised games; fixes listed. |
@@ -285,8 +285,9 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
 - The MLP has no weight sharing between locations, so it memorises one layout
   ([finding](findings/mlp-memorises-board-layouts.md)).
 - `TransformerPolicyNet` (`--arch transformer`) keeps GraphPolicyNet's encoders and heads but replaces message
-  passing with full attention over all 146 tokens (learned per-head graph-distance bias, type embeddings). Cost-matched
-  to GNN d128 L4 at d96 L3 or d64 L4 (`benchmarks/policy_cost.py` on a GPU); it learned much slower (run 11).
+  passing with full attention over all 146 tokens: a learned position embedding per token slot, a learned per-head
+  graph-distance bias initialised as a multi-scale locality prior, a final LayerNorm. Cost-matched to GNN d128 L4 at
+  d96 L3 (`benchmarks/policy_cost.py` on a GPU); run 12 trailed the GNN by ~0.5 VP at 4–5M steps.
 - `GraphPolicyNet` (`ppo --arch gnn --hidden <d> --layers <rounds>`) is the board network: typed message passing
   over hexes, vertices and edges plus a global token, shared weights, no positional embeddings. Vertex/edge/hex
   embeddings score settle+city/road/robber; the global token scores the rest and the value. Each node also gets
