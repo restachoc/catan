@@ -5,8 +5,13 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Transformer (run 11) learned much slower than the GNN** ([finding](../findings/transformer-vs-gnn.md)). Proposed
-  next: same size, distance bias initialised as a locality prior (−1 per graph-distance step); else the hybrid.
+- **Run 12 (`tf96-l3-pos-randboard`) is training on Colab** with `--wandb` (launched 2026-10-06): run 11's transformer
+  (d96 L3) redone with per-slot position embeddings, a multi-scale locality prior for the distance bias (slopes 2,
+  1, 0.5, 0.25; global token unpenalised) and a final LayerNorm (`d1fc0e9`). Three changes vs run 11, one network
+  change vs run 9. The cell first re-runs `policy_cost.py` (gnn:128:4 vs transformer:96:3); its output is in the
+  Colab cell. When `~/Downloads/tf96-l3-pos-randboard.zip` exists: unzip, delete the zip, `runtime.unassign()`,
+  `strategy` (cached), 2000-game `evaluate` on both boards, finding. Run 11 ([finding](../findings/transformer-vs-gnn.md))
+  checkpoints no longer load (parameters changed).
 - **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
   1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - **Colab sessions keep dying before the zip downloads** (run 7's first try at 41 min, run 8 at the usage limit,
