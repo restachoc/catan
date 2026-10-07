@@ -269,8 +269,8 @@ def save(net: nn.Module, path: Path, **meta) -> None:
 NETS = {"mlp": PolicyNet, "gnn": GraphPolicyNet, "transformer": TransformerPolicyNet, "az": AZNet}
 
 
-def make_policy(arch: str, hidden: int, layers: int) -> PolicyNet | GraphPolicyNet:
-    return NETS[arch](hidden, layers)
+def make_policy(arch: str, hidden: int, layers: int, heads: int = 4) -> PolicyNet | GraphPolicyNet:
+    return TransformerPolicyNet(hidden, layers, heads) if arch == "transformer" else NETS[arch](hidden, layers)
 
 
 def load(path: Path | str) -> PolicyNet | GraphPolicyNet | AZNet:

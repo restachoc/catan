@@ -58,8 +58,8 @@ def main() -> None:
     act = torch.randint(0, 1, (args.minibatch,), device=dev)
     print(f"{'network':<20}{'params':>9}{'update ms':>11}{'rollout ms':>12}{'est. samples/s':>16}{'GB':>6}")
     for c in args.configs:
-        arch, d, layers = c.split(":")
-        net = make_policy(arch, int(d), int(layers)).to(dev)
+        arch, d, layers, *heads = c.split(":")  # arch:width:layers[:heads]
+        net = make_policy(arch, int(d), int(layers), *map(int, heads)).to(dev)
         net.amp = True
         opt = torch.optim.Adam(net.parameters(), lr=3e-4, eps=1e-5)
         scaler = torch.amp.GradScaler()

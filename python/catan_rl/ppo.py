@@ -48,10 +48,11 @@ class Config:
     n_players: int = 4
     random_board: bool = False
     # model: "mlp" (hidden = width), "gnn" (hidden = node embedding size, layers = message-passing rounds) or
-    # "transformer" (hidden = token size, layers = attention blocks over all board tokens)
+    # "transformer" (hidden = token size, layers = attention blocks over all board tokens, heads = attention heads)
     arch: str = "mlp"
     hidden: int = 512
     layers: int = 3
+    heads: int = 4  # transformer only
     # rollout
     num_envs: int = 512
     rollout: int = 128
@@ -85,6 +86,7 @@ class Config:
     eval_pair: bool = False  # also evaluate two policy seats vs two heuristic bots (they can trade; chance 50%)
     threads: int = 0
     resume: str = ""
+    save_every: float = 0  # with --wandb: upload the run directory to W&B every this many samples (and at the end)
     # hardware: "cpu" or "cuda"; amp = fp16 autocast (cuda only, ~1.5x for the GNN on a T4)
     device: str = "cpu"
     amp: bool = False
@@ -176,7 +178,7 @@ class Trainer:
 
         self.dev = torch.device(cfg.device)
         self.amp = cfg.amp and self.dev.type == "cuda"
-        self.net = make_policy(cfg.arch, cfg.hidden, cfg.layers).to(self.dev)
+        self.net = make_policy(cfg.arch, cfg.hidden, cfg.layers, cfg.heads).to(self.dev)
         self.net.amp = self.amp
         self.opt = torch.optim.Adam(self.net.parameters(), lr=cfg.lr, eps=1e-5)
         self.scaler = torch.amp.GradScaler(self.dev.type, enabled=self.amp)
@@ -461,6 +463,7 @@ class Trainer:
         cfg = self.cfg
         t0 = time.perf_counter()
         steps0 = self.steps
+        saved = int(self.steps // cfg.save_every) if cfg.save_every else 0
         while self.steps < cfg.total_steps:
             t = time.perf_counter()
             self.collect()
@@ -519,6 +522,10 @@ class Trainer:
                     self.checkpoint(self.dir / "best.pt")
             self.log(row)
             self.tracker.log(row)
+            if cfg.save_every and self.steps // cfg.save_every > saved:
+                saved = int(self.steps // cfg.save_every)
+                self.checkpoint(self.dir / "latest.pt")
+                self.tracker.save_files(self.dir)
             elapsed = time.perf_counter() - t0
             rate = (self.steps - steps0) / elapsed
             eta = (cfg.total_steps - self.steps) / max(rate, 1)
@@ -532,6 +539,8 @@ class Trainer:
                 flush=True,
             )
         self.checkpoint(self.dir / "latest.pt")
+        if cfg.save_every:
+            self.tracker.save_files(self.dir)
         self.tracker.finish()
 
 
@@ -543,7 +552,8 @@ def main() -> None:
         if t is bool:
             ap.add_argument(name, action=argparse.BooleanOptionalAction, default=f.default)
         else:
-            ap.add_argument(name, type=float if f.name in ("total_steps", "warmup_steps") else t, default=f.default)
+            ap.add_argument(name, type=float if f.name in ("total_steps", "warmup_steps", "save_every") else t,
+                            default=f.default)
     cfg = Config(**vars(ap.parse_args()))
     Trainer(cfg).run()
 

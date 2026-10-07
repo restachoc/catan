@@ -40,6 +40,12 @@ class Tracker:
         self.run.define_metric("train/steps")
         self.run.define_metric("*", step_metric="train/steps")
 
+    def save_files(self, run_dir: Path) -> None:
+        """Upload the run directory (checkpoints, league pool, metrics; not W&B's own files) as a new version of the
+        artifact `<run>-files`, so a run survives losing the machine (`python -m catan_rl.wandb_store load`)."""
+        if self.run is not None:
+            upload_dir(self.run, run_dir)
+
     def log(self, row: dict) -> None:
         if self.run is not None:
             self.run.log({LEGACY.get(k, k): v for k, v in row.items() if v != "" and v is not None})
@@ -47,3 +53,14 @@ class Tracker:
     def finish(self) -> None:
         if self.run is not None:
             self.run.finish()
+
+
+def upload_dir(run, run_dir: Path) -> None:
+    import wandb
+
+    art = wandb.Artifact(f"{run_dir.name}-files", type="run-dir")
+    for f in sorted(run_dir.rglob("*")):
+        rel = f.relative_to(run_dir)
+        if f.is_file() and rel.parts[0] != "wandb":
+            art.add_file(str(f), name=str(rel))
+    run.log_artifact(art).wait()

@@ -104,6 +104,7 @@ python/catan_rl/
   strategy.py             strategy mix of a run's snapshots in self-play -> plots/<run>_strategy.png
   tracking.py             optional W&B logging (--wandb): metric grouping, stable run id for --resume
   wandb_backfill.py       upload runs trained without --wandb to W&B under the same metric names
+  wandb_store.py          run directories as W&B artifacts: save / load (resume after a lost Colab session)
   eval_curve.py           every snapshot of a run on the same eval games -> runs/<run>/eval_curve.csv (plot_runs uses it)
   plot_runs.py            eval curves of several runs side by side
   generalization.py       each run's best.pt on the fixed vs random boards -> plots/generalization.png
@@ -174,6 +175,13 @@ switch to T4 if there's no GPU.
 2. The download lands in `~/Downloads/<run>.zip` on this machine (the browser runs here), sometimes a few
    seconds after the cell finishes. `unzip -qo ~/Downloads/<run>.zip` in the repo root gives `runs/<run>/`.
 3. Delete the runtime right away: a cell with `from google.colab import runtime; runtime.unassign()`.
+
+**Free sessions die after ~55 min** (seen on runs 7, 9, 12), so long runs save themselves to W&B: `ppo --wandb
+--save-every 2e6` uploads `runs/<run>/` (checkpoints, league pool, metrics) as the artifact `<run>-files` every 2M
+samples and at the end. After the strategy step, `python -m catan_rl.wandb_store save --name <run>` uploads it again.
+If the session dies: on a fresh T4, `bash catan/scripts/colab.sh wandb_store load --name <run>`, then the same `ppo`
+command plus `--resume runs/<run>/latest.pt` (same W&B run; the stretch since the last upload is logged twice).
+Locally, `python -m catan_rl.wandb_store load --name <run>` fetches the result, so the browser download is optional.
 
 Notes: free runtimes have 2 vCPUs, 12 GB RAM, a T4 with 15 GB, and disconnect after ~12 h or when the browser
 tab idles too long, so keep single jobs to a few hours. The job runs inside the cell; `run_code_cell`
