@@ -7,6 +7,11 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 - **Transformer with position embeddings (run 12) trails the GNN by ~0.5 VP** at 4–5M steps, still rising; its
   Colab session died at 4.6M ([finding](../findings/transformer-vs-gnn.md)).
+- **Run 13 (`tf128-l4h8-randboard`) is training on Colab** (launched 2026-10-07): run 12's transformer scaled to d128,
+  4 blocks, 8 heads (0.62M params; option B, est. ~1.5× run 12's cost, ~105 min), run 9's recipe, `--wandb --save-every
+  2e6`. Two size changes vs run 12 (width and depth/heads). If W&B shows it crashed: fresh T4, `colab.sh wandb_store load
+  --name tf128-l4h8-randboard`, then the same ppo command + `--resume runs/tf128-l4h8-randboard/latest.pt`. When done:
+  `wandb_store load` locally (the cell also runs strategy + `wandb_store save`), 2000-game evals, finding.
 - **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
   1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - **Colab sessions die at ~55 min**: fixed with W&B artifacts (`ppo --save-every 2e6`, `wandb_store load/save`, see
