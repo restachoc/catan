@@ -7,12 +7,12 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 - **Transformer with position embeddings (run 12) trails the GNN by ~0.5 VP** at 4–5M steps, still rising; its
   Colab session died at 4.6M ([finding](../findings/transformer-vs-gnn.md)).
-- **Run 13 (`tf128-l4h8-randboard`, transformer d128 L4 h8, 0.62M params) is being continued to 12M steps** (launched
-  2026-10-07 ~20:55 from W&B's last upload with `--resume ... --total-steps 12e6 --save-every 1e6`, same W&B run).
-  The first 6M: 5.81 VP / 8.7% at 6M, still rising (run 9 GNN plateaued ~5.9 from 3.5M; run 12 tf96 5.4 at 4–5M).
-  Local copy of the 6M state in `runs/tf128-l4h8-randboard/` (will be replaced by `wandb_store load` afterwards).
-  If W&B shows a crash: fresh T4, `colab.sh wandb_store load --name tf128-l4h8-randboard`, rerun the same resume
-  command. When done: `wandb_store load`, 2000-game evals on both boards, strategy chart, finding (runs 12/13/9).
+- **Run 13 (`tf128-l4h8-randboard`, transformer d128 L4 h8, 0.62M params) is paused at 9M of 12M steps.** The
+  continuation's session died at 9.81M (2026-10-07 22:19); the last upload (`-files:v9`) is at 9M. A new GPU check
+  hung (probably the Colab GPU limit). It is still improving and now above the GNN's plateau (in-training means:
+  4–6M 7.8% / 5.66 VP, 6–8M 9.3% / 5.83, 8–10M 11.6% / 6.02; run 9 GNN 10.4% / 5.97 at 4–5.1M). To finish: on a T4,
+  rerun the first Colab cell (it restores the latest upload and resumes to 12M with `--save-every 1e6`). Then
+  `wandb_store load`, 2000-game evals on both boards, strategy chart, finding (runs 12/13 vs 9).
 - **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
   1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - **Colab sessions die at ~55 min**: fixed with W&B artifacts (`ppo --save-every 2e6`, `wandb_store load/save`, see
