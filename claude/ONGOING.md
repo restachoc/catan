@@ -5,7 +5,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 13 (`tf128-l4h8-randboard`, transformer d128 L4 h8, 0.62M params) is paused at 9M of 12M steps.** The
+- **Run 13 (`tf128-l4h8-randboard`, transformer d128 L4 h8, 0.62M params): resumed from 9M toward 12M on Colab
+  (2026-10-08, launched with the cell below; ~70 min).** It was paused at 9M of 12M steps. The
   continuation's session died at 9.81M (2026-10-07 22:19); the last upload (`-files:v9`) is at 9M. A new GPU check
   hung (probably the Colab GPU limit). It is still improving and now slightly above the GNN's plateau (in-training
   means: 4–6M 7.8% / 5.66 VP, 6–8M 9.3% / 5.83, 8–10M 11.6% / 6.02; run 9 GNN 10.4% / 5.97 at 4–5.1M). To finish: on a
