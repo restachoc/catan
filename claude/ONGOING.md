@@ -5,26 +5,22 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Run 13 (`tf128-l4h8-randboard`, transformer d128 L4 h8, 0.62M params): resumed from 9M toward 12M on Colab
-  (2026-10-08, launched with the cell below; ~70 min).** It was paused at 9M of 12M steps. The
-  continuation's session died at 9.81M (2026-10-07 22:19); the last upload (`-files:v9`) is at 9M. A new GPU check
-  hung (probably the Colab GPU limit). It is still improving and now slightly above the GNN's plateau (in-training
-  means: 4–6M 7.8% / 5.66 VP, 6–8M 9.3% / 5.83, 8–10M 11.6% / 6.02; run 9 GNN 10.4% / 5.97 at 4–5.1M). To finish: on a
-  T4, rerun the first Colab cell (`colab.sh wandb_store load --name tf128-l4h8-randboard`, then the same `ppo` command
-  with `--resume runs/tf128-l4h8-randboard/latest.pt --total-steps 12e6 --save-every 1e6`, then strategy +
-  `wandb_store save`). Afterwards: `wandb_store load` locally (replaces the local 6M copy), 2000-game evals on both
-  boards (`evaluate`, not `generalization`, which would redraw the shared chart), strategy chart, and extend
-  [transformer-vs-gnn](../findings/transformer-vs-gnn.md) with run 13 + an EXPERIMENTS row update.
+- Nothing training. Run 13 finished at 12M (2026-10-08). Its strategy step ran on Colab after the local copy was
+  fetched; `wandb_store load --name tf128-l4h8-randboard` again to get the full `strategy.csv` + chart.
 
 ## Where the network stands
 
-- **GNN d128 L4 plateaus at ~6 VP / ~10–15% from ~3.5M steps** (runs 6–9). Ruled out as causes: LR decay, more
-  rounds, the VP fade, missing card counting.
-- **Transformer:** cost-matched d96 L3 was slow without position info (run 11), ~0.5 VP behind the GNN with position
-  embeddings + locality prior (run 12). The bigger d128 L4 h8 (run 13, ~1.6× the GNN's cost per sample) kept improving
-  past the GNN's plateau. If run 13 ends clearly above the GNN, the transformer becomes the main network.
-- Remaining candidates for the plateau: the opponent mix (only 25% of games vs the heuristic it's evaluated on),
-  longer training (now practical: runs resume from W&B), the global-token bottleneck (wider helped).
+- **Every network plateaus at ~6 VP / ~13–15% on random boards** with the same strategy (dev cards, little
+  expansion): GNN d128 (runs 6–9) at 6M, transformer d128 L4 (run 13) at 12M
+  ([transformer-vs-gnn](../findings/transformer-vs-gnn.md)). Ruled out: LR decay, more rounds, the VP fade, card
+  counting, network type and size. **The network is not the main limit**; next work is on the training setup.
+- **Where run 13 loses** (6M `best.pt`, 2000 games per cell, scratch analysis, not yet a finding): swapping setup /
+  rest-of-game control with the heuristic gives net/net 10.7%, heur setup 13.7%, heur play 17.5%, heur/heur 26.4%.
+  Its setup has 1.9 fewer pips and wood+brick in 42% vs 68% of games; in play it builds 0.95 extra settlements vs 1.75
+  and more roads (chases Longest Road). VP is equal to turn ~40; the gap opens late. So: under-expansion, both phases.
+- Candidate next runs (one change each): `--frac-heuristic ~0.6` (only 25% of games are vs the heuristic it's
+  evaluated on); in-game shaping for VP / production gained (potential-based) to credit expansion; setup trained or
+  scripted separately. Longer term: search at play time with the PPO network.
 - **Trading is parked, off by default** (`--trading`). Revisit once the network plays better: 1 proposal per turn,
   no entropy bonus on trade decisions, or a curriculum from a no-trading model.
 - W&B: runs 1–6 backfilled (run 6's strategy data covers 23 of 29 snapshots); run 7 on logged live. The owner was
