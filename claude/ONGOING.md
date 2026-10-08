@@ -18,6 +18,8 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
   rest-of-game control with the heuristic gives net/net 10.7%, heur setup 13.7%, heur play 17.5%, heur/heur 26.4%.
   Its setup has 1.9 fewer pips and wood+brick in 42% vs 68% of games; in play it builds 0.95 extra settlements vs 1.75
   and more roads (chases Longest Road). VP is equal to turn ~40; the gap opens late. So: under-expansion, both phases.
+  The script was session scratch (lost): many `Game`s in Python, test seat's setup/play by `net.act` or
+  `g.bot_action("heuristic")`, seeds 50000+k, seat k%4. Rebuild it in the repo if this becomes a finding.
 - Candidate next runs (one change each): `--frac-heuristic ~0.6` (only 25% of games are vs the heuristic it's
   evaluated on); in-game shaping for VP / production gained (potential-based) to credit expansion; setup trained or
   scripted separately. Longer term: search at play time with the PPO network.
