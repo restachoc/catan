@@ -26,6 +26,7 @@ kept no snapshots), `plots/generalization.png` (fixed vs random boards),
 | `gnn128-trade-randboard` | Run 10 (trading) | Run 9 + player-to-player trading (N_ACTIONS 321) and the pair evaluation; `--wandb` | – | best.pt, 2000 games: 4.2% / 5.0 (pair: 16.6% / 5.7, chance 50%) |
 | `tf96-l3-randboard` | Run 11 (transformer) | Run 9 with `--arch transformer --hidden 96 --layers 3` (0.28M params), cost-matched to the GNN; `--wandb` | 2.3% / 5.0 | 1.9% / 4.9 |
 | `tf96-l3-pos-randboard` | Run 12 (transformer + positions) | Run 11 with per-slot position embeddings, locality-prior distance bias, final LayerNorm; `--wandb`. Colab died at 4.6M, no checkpoints | – | in-training, mean 4–5.1M: 7.0% / 5.4 |
+| `tf128-l4h8-randboard` | Run 13 (transformer d128 L4 h8) | Run 12's transformer at d128, 4 blocks, 8 heads (0.62M params); `--wandb --save-every 1e6`. **Paused at 9M of 12M** (artifact v9) | – | in-training, mean 8–10M: 11.6% / 6.0 (6M: 8.7% / 5.8) |
 | `az1` | AlphaZero az1 | AlphaZero, 64 sims, 256 games, 3M samples (~1.6 h), pure self-play, win/loss | 0.0% / 3.1 (raw policy) | 0.1% / 2.8 |
 
 az1 with search (in-training eval, 200 games): 0–1.5% win rate, VP 3.0–3.6, no upward trend.

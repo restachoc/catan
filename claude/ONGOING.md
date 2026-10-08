@@ -5,33 +5,29 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
-- **Transformer with position embeddings (run 12) trails the GNN by ~0.5 VP** at 4–5M steps, still rising; its
-  Colab session died at 4.6M ([finding](../findings/transformer-vs-gnn.md)).
 - **Run 13 (`tf128-l4h8-randboard`, transformer d128 L4 h8, 0.62M params) is paused at 9M of 12M steps.** The
   continuation's session died at 9.81M (2026-10-07 22:19); the last upload (`-files:v9`) is at 9M. A new GPU check
-  hung (probably the Colab GPU limit). It is still improving and now above the GNN's plateau (in-training means:
-  4–6M 7.8% / 5.66 VP, 6–8M 9.3% / 5.83, 8–10M 11.6% / 6.02; run 9 GNN 10.4% / 5.97 at 4–5.1M). To finish: on a T4,
-  rerun the first Colab cell (it restores the latest upload and resumes to 12M with `--save-every 1e6`). Then
-  `wandb_store load`, 2000-game evals on both boards, strategy chart, finding (runs 12/13 vs 9).
-- **Trading is parked, off by default** (`--trading`). Fix the network first (the ~6 VP plateau), then revisit with
-  1 proposal per turn, no entropy bonus on trade decisions, or a curriculum from a no-trading model.
-- **Colab sessions die at ~55 min**: fixed with W&B artifacts (`ppo --save-every 2e6`, `wandb_store load/save`, see
-  CLAUDE.md "Remote GPU runs"); tested end to end locally (upload, restore, resume into the same W&B run).
-- **The GNN plateaus at ~6 VP / ~12–15% from ~3.5M steps** in runs 6–8. Ruled out: LR decay, more rounds, the VP fade, missing
-  card counting (run 9).
-  Candidates left: the global-token bottleneck (hybrid with seat tokens), the opponent mix (25% heuristic), more steps.
-- **Board network: the GNN is chosen.** Run 5 (d64 L4) reaches 8.7% on random boards vs the MLP's 0.5%, still
-  rising ([finding](../findings/gnn-generalises-across-boards.md)); d128 (run 6) reaches 13.4%
-  ([finding](../findings/gnn-width-d64-vs-d128.md)). The hybrid (GNN + attention to global/seat
-  tokens) is the upgrade path if the 64-dim global token proves a bottleneck.
-- **Next experiments, proposed to the owner** (launch with `--wandb` from now on):
-  1. GNN d64 on the fixed board, 6M steps (~40 min): if it nears run 1's 43%, the architecture is adequate.
-  2. The GNN at 20–30M steps (constant LR after warmup and constant VP reward are now the defaults). Redo in
-     one Colab session; runs aren't in git, so resuming needs the checkpoint uploaded.
-  3. 6 layers (~1.5× slower) if those stall. Use d128 as the base (run 6 beat d64).
-- W&B: runs 1–6 are backfilled (run 6's strategy data covers 23 of 29 snapshots; the CPU analysis was stopped);
-  run 7 on is logged live. A toy run `wandb-check` is in the project; the owner may delete it.
-  The owner was asked to confirm the project's visibility (team account `gianni-van-de-velde-universiteit-gent`).
+  hung (probably the Colab GPU limit). It is still improving and now slightly above the GNN's plateau (in-training
+  means: 4–6M 7.8% / 5.66 VP, 6–8M 9.3% / 5.83, 8–10M 11.6% / 6.02; run 9 GNN 10.4% / 5.97 at 4–5.1M). To finish: on a
+  T4, rerun the first Colab cell (`colab.sh wandb_store load --name tf128-l4h8-randboard`, then the same `ppo` command
+  with `--resume runs/tf128-l4h8-randboard/latest.pt --total-steps 12e6 --save-every 1e6`, then strategy +
+  `wandb_store save`). Afterwards: `wandb_store load` locally (replaces the local 6M copy), 2000-game evals on both
+  boards (`evaluate`, not `generalization`, which would redraw the shared chart), strategy chart, and extend
+  [transformer-vs-gnn](../findings/transformer-vs-gnn.md) with run 13 + an EXPERIMENTS row update.
+
+## Where the network stands
+
+- **GNN d128 L4 plateaus at ~6 VP / ~10–15% from ~3.5M steps** (runs 6–9). Ruled out as causes: LR decay, more
+  rounds, the VP fade, missing card counting.
+- **Transformer:** cost-matched d96 L3 was slow without position info (run 11), ~0.5 VP behind the GNN with position
+  embeddings + locality prior (run 12). The bigger d128 L4 h8 (run 13, ~1.6× the GNN's cost per sample) kept improving
+  past the GNN's plateau. If run 13 ends clearly above the GNN, the transformer becomes the main network.
+- Remaining candidates for the plateau: the opponent mix (only 25% of games vs the heuristic it's evaluated on),
+  longer training (now practical: runs resume from W&B), the global-token bottleneck (wider helped).
+- **Trading is parked, off by default** (`--trading`). Revisit once the network plays better: 1 proposal per turn,
+  no entropy bonus on trade decisions, or a curriculum from a no-trading model.
+- W&B: runs 1–6 backfilled (run 6's strategy data covers 23 of 29 snapshots); run 7 on logged live. The owner was
+  asked to confirm the project's visibility (entity `gianni-van-de-velde-universiteit-gent`).
 
 ## Open decisions (waiting on the owner)
 

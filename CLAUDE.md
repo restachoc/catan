@@ -69,7 +69,7 @@ The bot is built in versions of increasing difficulty:
 | Version | Board | Trading | Status |
 |---|---|---|---|
 | v1 | fixed beginner board | none (bank/port only) | **current**: PPO diagnostic run `diag` beats the heuristic bot 43% of the time (chance = 25%); long run not started |
-| v2 | random boards | none | the flat MLP fails here (runs 3 and 4); the GNN (`--arch gnn`) reaches 8.7% at d64 (run 5), 13.4% at d128 (run 6) and 15.0% with 7 rounds (run 7, within noise) after 6M steps on a Colab T4, still below chance; next: longer GNN runs |
+| v2 | random boards | none | the flat MLP fails here (runs 3 and 4); the GNN (`--arch gnn`) reaches 8.7% at d64 (run 5), 13.4% at d128 (run 6) and 15.0% with 7 rounds (run 7, within noise) after 6M steps on a Colab T4, plateauing at ~6 VP; a transformer d128 L4 (run 13) passes that plateau around 8–10M steps (in progress); still below chance |
 | v3 | either | bots accept/reject offers | implemented, **off by default** (`--trading`); parked until the network is fixed: run 10 traded too much and learned slower |
 | v4 | either | bots propose structured trades | same implementation as v3 (1:1, 2:1, 1:2 offers) |
 
@@ -295,7 +295,8 @@ goes to `runs/<run>/metrics.jsonl`; `metrics.csv` keeps only the old fixed colum
 - `TransformerPolicyNet` (`--arch transformer`) keeps GraphPolicyNet's encoders and heads but replaces message
   passing with full attention over all 146 tokens: a learned position embedding per token slot, a learned per-head
   graph-distance bias initialised as a multi-scale locality prior, a final LayerNorm. Cost-matched to GNN d128 L4 at
-  d96 L3 (`benchmarks/policy_cost.py` on a GPU); run 12 trailed the GNN by ~0.5 VP at 4–5M steps.
+  d96 L3 (`benchmarks/policy_cost.py` on a GPU); run 12 trailed the GNN by ~0.5 VP at 4–5M steps. `--heads` sets the
+  head count; run 13 (d128 L4 h8, ~790 samples/s on a T4) kept improving past the GNN's plateau.
 - `GraphPolicyNet` (`ppo --arch gnn --hidden <d> --layers <rounds>`) is the board network: typed message passing
   over hexes, vertices and edges plus a global token, shared weights, no positional embeddings. Vertex/edge/hex
   embeddings score settle+city/road/robber; the global token scores the rest and the value. Each node also gets
