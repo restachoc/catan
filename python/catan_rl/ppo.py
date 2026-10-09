@@ -86,6 +86,7 @@ class Config:
     eval_pair: bool = False  # also evaluate two policy seats vs two heuristic bots (they can trade; chance 50%)
     threads: int = 0
     resume: str = ""
+    init: str = ""  # start from these weights only (fresh optimizer, steps and best score; e.g. fine-tuning on another board)
     save_every: float = 0  # with --wandb: upload the run directory to W&B every this many samples (and at the end)
     # hardware: "cpu" or "cuda"; amp = fp16 autocast (cuda only, ~1.5x for the GNN on a T4)
     device: str = "cpu"
@@ -194,6 +195,8 @@ class Trainer:
                 self.opt.load_state_dict(ck["opt"])
             self.steps, self.iter = ck.get("steps", 0), ck.get("iter", 0)
             self.best_wr = ck.get("best_wr", -1.0)
+        elif cfg.init:
+            self.net.load_state_dict(torch.load(cfg.init, map_location="cpu", weights_only=False)["model"])
 
         N = cfg.num_envs
         self.env = VecEnv(N, seed=cfg.seed * 1_000_003, n_players=cfg.n_players, random_board=cfg.random_board,
