@@ -5,6 +5,15 @@ short and current: delete items when they're done. Linked from [CLAUDE.md](../CL
 
 ## In flight
 
+- **Next GPU run, waiting on the Colab limit:** `tf128-ft-fixed`: run 13's 12M weights fine-tuned on the
+  fixed board for 1.5M steps (`--init`, weights only), to see whether the transformer memorises a layout like the
+  MLP did (run 1: ~9% at 2M, 43% at 6M; run 13 starts at 7.2% there). Launch cell (on a T4):
+  ```
+  import os; from google.colab import userdata, files; os.environ["WANDB_API_KEY"] = userdata.get("WANDB_API_KEY")
+  !git clone -q https://github.com/restachoc/catan 2>/dev/null; bash catan/scripts/colab.sh wandb_store load --name tf128-l4h8-randboard
+  !bash catan/scripts/colab.sh ppo --name tf128-ft-fixed --init runs/tf128-l4h8-randboard/latest.pt --arch transformer --hidden 128 --layers 4 --heads 8 --num-envs 256 --rollout 128 --total-steps 1.5e6 --snapshot-every 10 --eval-every 5 --eval-games 400 --wandb --save-every 5e5 --device cuda --amp
+  files.download("/content/tf128-ft-fixed.zip")
+  ```
 - Nothing training. Run 13 finished at 12M (2026-10-08). Its strategy step ran on Colab after the local copy was
   fetched; `wandb_store load --name tf128-l4h8-randboard` again to get the full `strategy.csv` + chart.
 
