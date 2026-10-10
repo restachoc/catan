@@ -64,13 +64,16 @@ class GraphPolicyNet(nn.Module):
     players, own hand and phase. Each node also sees whether its own actions are legal (from the mask).
     Vertex embeddings score settlements and cities, edge embeddings roads, hex embeddings the robber,
     and the global token the remaining actions and the value.
+
+    With `aux`, two linear heads predict the pips per resource of every vertex (from its embedding) and of the board
+    (from the global token); `forward_aux` returns them for an auxiliary loss. They don't affect play.
     """
 
     amp = False
 
-    def __init__(self, hidden: int = 64, layers: int = 4):
+    def __init__(self, hidden: int = 64, layers: int = 4, aux: bool = False):
         super().__init__()
-        self.cfg = {"kind": "gnn", "hidden": hidden, "layers": layers}
+        self.cfg = {"kind": "gnn", "hidden": hidden, "layers": layers, "aux": aux}
         d = hidden
         topo = G.topology()
         self.register_buffer("vert_static", topo.vert_static, persistent=False)
@@ -86,12 +89,15 @@ class GraphPolicyNet(nn.Module):
         self.pi_v, self.pi_e, self.pi_h = nn.Linear(d, 2), nn.Linear(d, 1), nn.Linear(d, 1)
         self.pi_g = nn.Linear(d, G.N_GLOBAL_ACT)
         self.v = nn.Sequential(G.dense(d, d), nn.Linear(d, 1))
+        if aux:
+            self.register_buffer("v_h", topo.rel["v<h"], persistent=False)
+            self.aux_v, self.aux_g = nn.Linear(d, 5), nn.Linear(d, 5)
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
-        for head in (self.pi_v, self.pi_e, self.pi_h, self.pi_g):
+        for head in (self.pi_v, self.pi_e, self.pi_h, self.pi_g) + ((self.aux_v, self.aux_g) if aux else ()):
             nn.init.orthogonal_(head.weight, gain=0.01)
         nn.init.orthogonal_(self.v[-1].weight, gain=1.0)
 
@@ -99,6 +105,13 @@ class GraphPolicyNet(nn.Module):
         x, g = self.encode(obs, mask)
         x, g = self.trunk(x, g)
         return self.decode(x, g, mask)
+
+    def forward_aux(self, obs: torch.Tensor, mask: torch.Tensor):
+        """forward() plus the auxiliary predictions: vertex pips (B, 54, 5) and board pips (B, 5)."""
+        x, g = self.encode(obs, mask)
+        x, g = self.trunk(x, g)
+        logits, v = self.decode(x, g, mask)
+        return logits, v, self.aux_v(x["v"]).transpose(0, 1).float(), self.aux_g(g).float()
 
     def encode(self, obs: torch.Tensor, mask: torch.Tensor) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
         """Node embeddings, node-major {"h": (19, B, d), "v": (54, B, d), "e": (72, B, d)}, and the global token (B, d)."""
@@ -141,9 +154,9 @@ class TransformerPolicyNet(GraphPolicyNet):
 
     MAX_D = 8  # distances beyond this share one bias
 
-    def __init__(self, hidden: int = 64, layers: int = 4, heads: int = 4):
-        super().__init__(hidden, 0)
-        self.cfg = {"kind": "transformer", "hidden": hidden, "layers": layers, "heads": heads}
+    def __init__(self, hidden: int = 64, layers: int = 4, heads: int = 4, aux: bool = False):
+        super().__init__(hidden, 0, aux)
+        self.cfg = {"kind": "transformer", "hidden": hidden, "layers": layers, "heads": heads, "aux": aux}
         d = hidden
         dist = torch.full((G.N_TOK + 1, G.N_TOK + 1), self.MAX_D + 1, dtype=torch.long)
         dist[:G.N_TOK, :G.N_TOK] = G.topology().dist.clamp(max=self.MAX_D)
@@ -269,8 +282,10 @@ def save(net: nn.Module, path: Path, **meta) -> None:
 NETS = {"mlp": PolicyNet, "gnn": GraphPolicyNet, "transformer": TransformerPolicyNet, "az": AZNet}
 
 
-def make_policy(arch: str, hidden: int, layers: int, heads: int = 4) -> PolicyNet | GraphPolicyNet:
-    return TransformerPolicyNet(hidden, layers, heads) if arch == "transformer" else NETS[arch](hidden, layers)
+def make_policy(arch: str, hidden: int, layers: int, heads: int = 4, aux: bool = False) -> PolicyNet | GraphPolicyNet:
+    if arch == "transformer":
+        return TransformerPolicyNet(hidden, layers, heads, aux)
+    return GraphPolicyNet(hidden, layers, aux) if arch == "gnn" else NETS[arch](hidden, layers)
 
 
 def load(path: Path | str) -> PolicyNet | GraphPolicyNet | AZNet:

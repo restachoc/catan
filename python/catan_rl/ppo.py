@@ -33,6 +33,7 @@ import torch
 from catan_rl import N_ACTIONS, OBS_SIZE, VecEnv
 from catan_rl._engine import STAT_NAMES
 from catan_rl.evaluate import evaluate
+from catan_rl.graph import pip_targets
 from catan_rl.model import GraphedPolicy, PolicyNet, load, make_policy, save
 from catan_rl.strategy import STRATEGIES, classify, spending
 from catan_rl.tracking import LEGACY, Tracker
@@ -70,6 +71,8 @@ class Config:
     minibatch: int = 4096
     ent_coef: float = 0.01
     vf_coef: float = 0.5
+    # auxiliary loss (gnn/transformer): predict pips per resource of every vertex and of the board, weighted by this
+    aux_coef: float = 0.0
     max_grad_norm: float = 0.5
     # reward shaping: vp_coef * (own VP - mean opponent VP) / 10, annealed to 0 over vp_anneal_frac of
     # total_steps (0 = never annealed, the default: fading it out didn't help, see findings/)
@@ -179,7 +182,7 @@ class Trainer:
 
         self.dev = torch.device(cfg.device)
         self.amp = cfg.amp and self.dev.type == "cuda"
-        self.net = make_policy(cfg.arch, cfg.hidden, cfg.layers, cfg.heads).to(self.dev)
+        self.net = make_policy(cfg.arch, cfg.hidden, cfg.layers, cfg.heads, aux=cfg.aux_coef > 0).to(self.dev)
         self.net.amp = self.amp
         self.opt = torch.optim.Adam(self.net.parameters(), lr=cfg.lr, eps=1e-5)
         self.scaler = torch.amp.GradScaler(self.dev.type, enabled=self.amp)
@@ -352,14 +355,19 @@ class Trainer:
         mb = min(cfg.minibatch, n)
         self.net.train()
         params_before = torch.nn.utils.parameters_to_vector(self.net.parameters()).detach().clone()
-        logs = {k: [] for k in ("pg", "vf", "ent", "kl", "clipfrac", "grad_norm", "max_prob", "ent_norm", "n_legal")}
+        logs = {k: [] for k in ("pg", "vf", "ent", "kl", "clipfrac", "grad_norm", "max_prob", "ent_norm", "n_legal",
+                                "aux_vertex", "aux_board")}
         for _ in range(cfg.epochs):
             perm = torch.randperm(n)
             for s in range(0, n - mb + 1, mb):
                 b = perm[s : s + mb]
                 bd = b.to(self.dev)
+                ob = obs[b].to(self.dev)
                 with torch.autocast(self.dev.type, dtype=torch.float16, enabled=self.amp):
-                    logits, v = self.net(obs[b].to(self.dev), mask[b].to(self.dev))
+                    if cfg.aux_coef > 0:
+                        logits, v, pred_v, pred_g = self.net.forward_aux(ob, mask[b].to(self.dev))
+                    else:
+                        logits, v = self.net(ob, mask[b].to(self.dev))
                 logp_all = torch.log_softmax(logits, -1)
                 lp = logp_all.gather(-1, act[bd, None]).squeeze(-1)
                 probs = logp_all.exp()
@@ -371,6 +379,12 @@ class Trainer:
                 pg = -torch.min(ratio * a, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a).mean()
                 vf = 0.5 * (v - ret_t[bd]).pow(2).mean()
                 loss = pg + cfg.vf_coef * vf - cfg.ent_coef * ent
+                if cfg.aux_coef > 0:
+                    tv, tg = pip_targets(ob, self.net.v_h)
+                    tv, tg = tv / 5, (tg - 58 / 5) / 3  # roughly unit scale; every board has 58 pips in all
+                    aux_v = (pred_v - tv).pow(2).mean()
+                    aux_g = (pred_g - tg).pow(2).mean()
+                    loss = loss + cfg.aux_coef * (aux_v + aux_g)
                 self.opt.zero_grad(set_to_none=True)
                 self.scaler.scale(loss).backward()
                 self.scaler.unscale_(self.opt)
@@ -389,7 +403,14 @@ class Trainer:
                     logs["ent_norm"].append((ent_rows[multi] / n_legal[multi].log()).mean().item() if multi.any() else 0.0)
                     logs["max_prob"].append(probs.max(-1).values.mean().item())
                     logs["n_legal"].append(n_legal.mean().item())
-        out = {k: float(np.mean(v)) for k, v in logs.items() if k not in ("grad_norm", "max_prob", "ent_norm", "n_legal")}
+                    if cfg.aux_coef > 0:  # 1 - MSE / variance of the target (R2 on this minibatch)
+                        logs["aux_vertex"].append(1 - (aux_v / tv.var()).item())
+                        logs["aux_board"].append(1 - (aux_g / tg.var()).item())
+        out = {k: float(np.mean(v)) for k, v in logs.items()
+               if k not in ("grad_norm", "max_prob", "ent_norm", "n_legal", "aux_vertex", "aux_board")}
+        if cfg.aux_coef > 0:
+            out["aux/vertex_pips_r2"] = float(np.mean(logs["aux_vertex"]))
+            out["aux/board_pips_r2"] = float(np.mean(logs["aux_board"]))
         out["samples"] = n
         ev = 1 - np.var(ret[idx] - buf.val[idx]) / (np.var(ret[idx]) + 1e-8)
         out["explained_var"] = float(ev)

@@ -126,6 +126,15 @@ def split_obs(obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tens
             obs[:, b:BOARD_OBS].view(B, N_EDGE, EDGE_F), obs[:, BOARD_OBS:])
 
 
+def pip_targets(obs: torch.Tensor, v_h: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Auxiliary targets from the observation: pips per resource of every vertex (B, 54, 5; its up to 3 hexes summed)
+    and of the whole board (B, 5). `v_h` is the (54, 3) vertex->hex index padded with N_HEX. The robber is ignored."""
+    h = split_obs(obs)[0]
+    res = h[..., :5] * (h[..., 6:7] * 5)  # desert (one-hot slot 5) drops out
+    padded = torch.cat([res, res.new_zeros(res.shape[0], 1, 5)], 1)
+    return padded[:, v_h].sum(2), res.sum(1)
+
+
 def dense(i: int, o: int) -> nn.Sequential:
     return nn.Sequential(nn.Linear(i, o), nn.LayerNorm(o), nn.ReLU())
 
